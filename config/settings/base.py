@@ -99,8 +99,14 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
+    "crm_easyoffice.core",
     "crm_easyoffice.users",
-    # Your stuff: custom apps go here
+    "crm_easyoffice.clientes",
+    "crm_easyoffice.inmuebles",
+    "crm_easyoffice.tramites",
+    "crm_easyoffice.documentos",
+    "crm_easyoffice.integrations",
+    "crm_easyoffice.migracion",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
