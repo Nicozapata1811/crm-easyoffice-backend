@@ -1,0 +1,9 @@
+# Production template. See the note in .production/.django.
+
+# PostgreSQL
+# ------------------------------------------------------------------------------
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=crm_easyoffice
+POSTGRES_USER=CHANGEME
+POSTGRES_PASSWORD=CHANGEME

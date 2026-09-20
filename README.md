@@ -62,9 +62,16 @@ Requisitos: Docker y Docker Compose.
 ```bash
 git clone git@github.com:Nicozapata1811/crm-easyoffice-backend.git
 cd crm-easyoffice-backend
+cp -R .envs.example .envs
 docker compose -f docker-compose.local.yml build
 docker compose -f docker-compose.local.yml up -d
 ```
+
+El paso `cp -R .envs.example .envs` no es opcional: `.envs/` no se versiona, y
+sin él PostgreSQL no arranca. Los valores de `.envs.example/.local/` sirven tal
+cual para desarrollo y no son secretos, porque los servicios que alcanzan son
+contenedores de esta máquina. Los de `.production/` son plantillas: cada
+`CHANGEME` se reemplaza por un valor generado para ese ambiente.
 
 Esto levanta siete servicios: `django`, `postgres`, `redis`, `celeryworker`,
 `celerybeat`, `flower` y `mailpit`. Las migraciones se aplican al iniciar.

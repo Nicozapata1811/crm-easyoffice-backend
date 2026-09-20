@@ -1,0 +1,19 @@
+# Local development only. These values are not secrets: the services they
+# reach are containers on this machine, not exposed outside Docker. Never
+# reuse them anywhere else.
+
+# General
+# ------------------------------------------------------------------------------
+USE_DOCKER=yes
+IPYTHONDIR=/app/.ipython
+
+# Redis
+# ------------------------------------------------------------------------------
+REDIS_URL=redis://redis:6379/0
+
+# Celery
+# ------------------------------------------------------------------------------
+
+# Flower
+CELERY_FLOWER_USER=localdev
+CELERY_FLOWER_PASSWORD=localdev
