@@ -4,5 +4,12 @@ set -o errexit
 set -o nounset
 
 
+# The django service applies migrations on startup. Beat reads its schedule
+# straight from the database, so starting before those tables exist kills it.
+until python manage.py migrate --check > /dev/null 2>&1; do
+  >&2 echo 'Waiting for migrations to be applied...'
+  sleep 2
+done
+
 rm -f './celerybeat.pid'
 exec watchfiles --filter python celery.__main__.main --args '-A config.celery_app beat -l INFO'

@@ -91,7 +91,6 @@ THIRD_PARTY_APPS = [
     "allauth",
     "allauth.account",
     "allauth.mfa",
-    "allauth.socialaccount",
     "django_celery_beat",
     "rest_framework",
     "rest_framework.authtoken",
@@ -335,10 +334,6 @@ ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_ADAPTER = "crm_easyoffice.users.adapters.AccountAdapter"
 # https://docs.allauth.org/en/latest/account/forms.html
 ACCOUNT_FORMS = {"signup": "crm_easyoffice.users.forms.UserSignupForm"}
-# https://docs.allauth.org/en/latest/socialaccount/configuration.html
-SOCIALACCOUNT_ADAPTER = "crm_easyoffice.users.adapters.SocialAccountAdapter"
-# https://docs.allauth.org/en/latest/socialaccount/configuration.html
-SOCIALACCOUNT_FORMS = {"signup": "crm_easyoffice.users.forms.UserSocialSignupForm"}
 
 # django-rest-framework
 # -------------------------------------------------------------------------------
