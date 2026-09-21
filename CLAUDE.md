@@ -138,6 +138,8 @@ Both sit behind interfaces defined by us, in `integrations/`:
 
 ```python
 class SignatureProvider(ABC): ...
+
+
 class PaymentProvider(ABC): ...
 ```
 
