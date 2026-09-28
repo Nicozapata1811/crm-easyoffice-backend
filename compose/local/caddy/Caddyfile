@@ -2,7 +2,7 @@
 	auto_https off
 }
 
-http://easyoffice.local {
+(sitio_simulado) {
 	# Stands in for the WordPress server: the browser never sees the token,
 	# the server-side relay adds it, as Elementor's webhook action would.
 	handle /enviar-formulario {
@@ -14,6 +14,15 @@ http://easyoffice.local {
 	handle {
 		reverse_proxy sitio-simulado:80
 	}
+}
+
+http://easyoffice.local {
+	import sitio_simulado
+}
+
+# Same mock site on plain localhost, for use without /etc/hosts entries.
+:8080 {
+	import sitio_simulado
 }
 
 http://tramites.easyoffice.local {

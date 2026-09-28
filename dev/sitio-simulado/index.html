@@ -182,6 +182,15 @@
       </section>
     </main>
     <script>
+      if (location.hostname !== "easyoffice.local") {
+        for (const enlace of document.querySelectorAll("a.boton")) {
+          enlace.href = enlace.href.replace(
+            "http://tramites.easyoffice.local",
+            "http://localhost:5173",
+          );
+        }
+      }
+
       const form = document.getElementById("contacto");
       const resultado = document.getElementById("resultado");
       const mensajes = {

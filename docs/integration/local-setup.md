@@ -20,6 +20,21 @@ appears in the browser.
 
 ---
 
+## Quick start: localhost only, no hosts file
+
+| Open | What it is |
+|---|---|
+| `http://localhost:8080` | Mock public site. Its buttons point to the portal on `localhost:5173`, and its form posts to the webhook. |
+| `http://localhost:5173` | Client portal (Vite on your machine) |
+| `http://localhost:8000/admin/` | Django admin: *Prospectos* |
+| `http://localhost:8000/api/catalogo/` | Catalogue JSON |
+
+Start the backend with the override (§2); plain `npm run dev` is enough for
+the frontend in this mode. The `*.easyoffice.local` hosts below are only
+needed to reproduce the production subdomain layout.
+
+---
+
 ## 1. One-time setup
 
 ### Hosts entries
