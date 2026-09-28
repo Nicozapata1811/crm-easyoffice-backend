@@ -347,3 +347,7 @@ placeholders only.
 6. **Who handles leads.** Is there a notification when a new prospecto
    arrives, and who is assigned to it?
 7. **DNS and subdomains.** Who creates `tramites.` and `api.`, and when?
+8. **"Plan anual de bodega virtual".** The domicilio tributario page on the
+   public site has a third "Contrate aquí" card for this plan. Is it a
+   separate service to add to the catalogue, or should it keep going to the
+   contact popup?
