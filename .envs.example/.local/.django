@@ -17,3 +17,9 @@ REDIS_URL=redis://redis:6379/0
 # Flower
 CELERY_FLOWER_USER=localdev
 CELERY_FLOWER_PASSWORD=localdev
+
+# Website integration
+# ------------------------------------------------------------------------------
+SITIO_BASE_URL=http://easyoffice.local
+PORTAL_BASE_URL=http://tramites.easyoffice.local
+WEBHOOK_SITIO_TOKEN=localdev-webhook-token

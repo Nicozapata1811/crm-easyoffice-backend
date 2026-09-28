@@ -107,6 +107,7 @@ LOCAL_APPS = [
     "crm_easyoffice.documentos",
     "crm_easyoffice.integrations",
     "crm_easyoffice.migracion",
+    "crm_easyoffice.prospectos",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -236,6 +237,10 @@ SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True
 # https://docs.djangoproject.com/en/dev/ref/settings/#x-frame-options
 X_FRAME_OPTIONS = "DENY"
+# https://docs.djangoproject.com/en/dev/ref/settings/#csrf-trusted-origins
+CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
+# https://docs.djangoproject.com/en/dev/ref/settings/#session-cookie-domain
+SESSION_COOKIE_DOMAIN = env("DJANGO_SESSION_COOKIE_DOMAIN", default=None)
 
 # EMAIL
 # ------------------------------------------------------------------------------
@@ -351,10 +356,12 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "NUM_PROXIES": env.int("DJANGO_NUM_PROXIES", default=None),
 }
 
 # django-cors-headers - https://github.com/adamchainz/django-cors-headers#setup
 CORS_URLS_REGEX = r"^/api/.*$"
+CORS_ALLOWED_ORIGINS = env.list("DJANGO_CORS_ALLOWED_ORIGINS", default=[])
 
 # By Default swagger ui is available only to admin user(s). You can change permission classes to change that
 # See more configuration options at https://drf-spectacular.readthedocs.io/en/latest/settings.html#settings
@@ -367,3 +374,38 @@ SPECTACULAR_SETTINGS = {
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
+
+# Website integration: see docs/integration/website-contract.md
+# ------------------------------------------------------------------------------
+SITIO_BASE_URL = env("SITIO_BASE_URL", default="https://easyoffice.cl")
+PORTAL_BASE_URL = env("PORTAL_BASE_URL", default="https://tramites.easyoffice.cl")
+# Empty disables the webhook: every request is rejected.
+WEBHOOK_SITIO_TOKEN = env("WEBHOOK_SITIO_TOKEN", default="")
+WEBHOOK_SITIO_THROTTLE_RATE = env("WEBHOOK_SITIO_THROTTLE_RATE", default="60/min")
+
+# ASSUMPTION: public website prices, pending confirmation by Easy Office.
+# The unpublished "trimestral" plan is deliberately absent.
+CATALOGO_SERVICIOS = [
+    {
+        "slug": "domicilio-tributario",
+        "nombre": "Domicilio tributario",
+        "planes": [
+            {
+                "slug": "anual",
+                "nombre": "Anual",
+                "meses": 12,
+                "precio": 59990,
+                "moneda": "CLP",
+                "precio_confirmado": False,
+            },
+            {
+                "slug": "semestral",
+                "nombre": "Semestral",
+                "meses": 6,
+                "precio": 39990,
+                "moneda": "CLP",
+                "precio_confirmado": False,
+            },
+        ],
+    },
+]
