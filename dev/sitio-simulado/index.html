@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es-CL">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sitio simulado · entorno local</title>
+    <style>
+      :root {
+        --ink: #1f2328;
+        --soft: #59636e;
+        --line: #d0d7de;
+        --bg: #f6f8fa;
+        --accent: #0969da;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+        line-height: 1.5;
+      }
+      .aviso {
+        background: #fff8c5;
+        border-bottom: 1px solid #d4a72c;
+        padding: 8px 16px;
+        font-size: 14px;
+        text-align: center;
+      }
+      main { max-width: 720px; margin: 0 auto; padding: 32px 16px; }
+      section {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 24px;
+        margin-bottom: 24px;
+      }
+      h1 { font-size: 24px; margin: 0 0 8px; }
+      h2 { font-size: 18px; margin: 0 0 12px; }
+      p { color: var(--soft); margin: 0 0 16px; }
+      .botones { display: flex; flex-wrap: wrap; gap: 12px; }
+      a.boton, button {
+        display: inline-block;
+        padding: 10px 16px;
+        border-radius: 6px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      a.boton.secundario { background: #fff; color: var(--accent); }
+      label { display: block; font-size: 14px; margin-bottom: 12px; }
+      input, select, textarea {
+        display: block;
+        width: 100%;
+        margin-top: 4px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font: inherit;
+      }
+      #resultado { margin-top: 12px; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="aviso">
+      Sitio de prueba para desarrollo local. No es el sitio público de la empresa.
+    </div>
+    <main>
+      <h1>Sitio simulado</h1>
+      <p>Reproduce los dos puntos de integración: enlaces al portal y formulario de contacto.</p>
+
+      <section>
+        <h2>Domicilio tributario</h2>
+        <p>Cada botón abre el portal con el plan ya elegido.</p>
+        <div class="botones">
+          <a class="boton" id="plan-anual"
+             href="http://tramites.easyoffice.local/domicilio-tributario?plan=anual&amp;origen=sitio">
+            Contratar plan anual
+          </a>
+          <a class="boton" id="plan-semestral"
+             href="http://tramites.easyoffice.local/domicilio-tributario?plan=semestral&amp;origen=sitio">
+            Contratar plan semestral
+          </a>
+        </div>
+      </section>
+
+      <section>
+        <h2>Enlaces de prueba</h2>
+        <p>Casos que el portal debe resolver sin mostrar error.</p>
+        <div class="botones">
+          <a class="boton secundario" id="plan-invalido"
+             href="http://tramites.easyoffice.local/domicilio-tributario?plan=trimestral&amp;origen=sitio">
+            Plan inexistente
+          </a>
+          <a class="boton secundario" id="sin-plan"
+             href="http://tramites.easyoffice.local/domicilio-tributario?origen=sitio">
+            Sin plan
+          </a>
+          <a class="boton secundario" id="servicio-desconocido"
+             href="http://tramites.easyoffice.local/servicio-que-no-existe?origen=sitio">
+            Servicio inexistente
+          </a>
+        </div>
+      </section>
+
+      <section>
+        <h2>Contáctanos</h2>
+        <p>Usa datos de prueba. Este formulario crea un prospecto en el CRM local.</p>
+        <form id="contacto" method="post" action="/enviar-formulario">
+          <input type="hidden" name="origen" value="sitio-contacto">
+          <label>Nombre
+            <input name="nombre" required maxlength="200">
+          </label>
+          <label>Correo
+            <input name="email" type="email" maxlength="254">
+          </label>
+          <label>Teléfono
+            <input name="telefono" maxlength="30">
+          </label>
+          <label>Servicio
+            <select name="servicio">
+              <option value="">Consulta general</option>
+              <option value="domicilio-tributario">Domicilio tributario</option>
+            </select>
+          </label>
+          <label>Mensaje
+            <textarea name="mensaje" rows="4" maxlength="5000"></textarea>
+          </label>
+          <button type="submit">Enviar</button>
+          <div id="resultado" role="status"></div>
+        </form>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("contacto");
+      const resultado = document.getElementById("resultado");
+      const mensajes = {
+        201: "Recibimos tu mensaje. Te contactaremos pronto.",
+        200: "Este mensaje ya lo habíamos recibido.",
+        400: "Revisa los datos: falta tu nombre, o un correo o teléfono.",
+        403: "El sitio no está autorizado para enviar al CRM (token).",
+        429: "Demasiados envíos. Intenta en un minuto.",
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        resultado.textContent = "Enviando…";
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: new URLSearchParams(new FormData(form)),
+        });
+        resultado.textContent =
+          mensajes[response.status] ?? `Error inesperado (${response.status}).`;
+      });
+    </script>
+  </body>
+</html>

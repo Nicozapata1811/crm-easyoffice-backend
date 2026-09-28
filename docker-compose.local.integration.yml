@@ -1,0 +1,30 @@
+# Local multi-subdomain environment for the website integration.
+# Used together with docker-compose.local.yml; see docs/integration/local-setup.md.
+
+services:
+  django:
+    environment:
+      DJANGO_ALLOWED_HOSTS: localhost,0.0.0.0,127.0.0.1,api.easyoffice.local
+
+  sitio-simulado:
+    image: docker.io/caddy:2-alpine
+    container_name: crm_easyoffice_local_sitio_simulado
+    command: caddy file-server --root /srv --listen :80
+    volumes:
+      - ./dev/sitio-simulado:/srv:ro
+
+  proxy:
+    image: docker.io/caddy:2-alpine
+    container_name: crm_easyoffice_local_proxy
+    depends_on:
+      - django
+      - sitio-simulado
+    env_file:
+      - path: ./.envs/.local/.django
+        required: false
+    volumes:
+      - ./compose/local/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      - '80:80'
