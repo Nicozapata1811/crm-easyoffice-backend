@@ -1,0 +1,37 @@
+{
+	auto_https off
+}
+
+(sitio_simulado) {
+	# Stands in for the WordPress server: the browser never sees the token,
+	# the server-side relay adds it, as Elementor's webhook action would.
+	handle /enviar-formulario {
+		rewrite * /api/integraciones/sitio/prospectos/?token={$WEBHOOK_SITIO_TOKEN}
+		reverse_proxy django:8000 {
+			header_up Host api.easyoffice.local
+		}
+	}
+	handle {
+		reverse_proxy sitio-simulado:80
+	}
+}
+
+http://easyoffice.local {
+	import sitio_simulado
+}
+
+# Same mock site on plain localhost, for use without /etc/hosts entries.
+:8080 {
+	import sitio_simulado
+}
+
+http://tramites.easyoffice.local {
+	# Vite rejects Host headers it does not know.
+	reverse_proxy host.docker.internal:5173 {
+		header_up Host localhost
+	}
+}
+
+http://api.easyoffice.local {
+	reverse_proxy django:8000
+}
