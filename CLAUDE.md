@@ -155,6 +155,31 @@ Never import a provider SDK outside `integrations/`.
 
 ---
 
+## Authentication and roles
+
+- **Session auth** (AD-03): `/api/auth/csrf/`, `login/`, `logout/`, `me/` in
+  `users/api/auth_views.py`. httpOnly cookies, CSRF-protected login, one generic
+  error for any failed login. Idle timeout from
+  `DJANGO_SESSION_INACTIVITY_SECONDS` (assumption, 1800 s).
+- **Roles are `auth.Group`** (MOD-001 `ROL`). At most one per user, enforced in
+  `UserAdminChangeForm`. Do not add a parallel role model; new roles are data.
+- `core/migrations/0002_seed_roles.py` seeds Administrador (RN-31) and Ejecutivo
+  (RN-32). Ejecutivo never gets `delete_*` (RF-04). When a new app adds models,
+  grant its permissions to these roles in that app's own data migration.
+- Feature permissions that guard no model live on the table-less
+  `core.PermisoSistema` (today: `core.view_dashboard`, RF-14).
+- `me` returns `rol` and `permisos`; clients authorise on permissions, not on
+  the role name.
+- Logins are not audited yet: `TODO(RF-15)` in `LoginView`.
+- `/api/auth-token/` and `TokenAuthentication` come from cookiecutter and
+  conflict with AD-03. Removal is pending a team decision.
+
+**Planned:** `GET /api/panel/indicadores/?desde=&hasta=` for the RF-14
+dashboard, requiring `core.view_dashboard`. Payload in the README; the frontend
+already consumes that shape from a mock.
+
+---
+
 ## MVP scope
 
 **In scope**
@@ -221,10 +246,14 @@ The repository is **public**.
 
 ---
 
-## Current status (week 5 of 18)
+## Current status (Sprint 1 · 22 Sep – 3 Oct 2026)
 
-Requirements gathered, scope drafted, prototypes built but **not yet validated**
-with the counterpart. Validation meeting is week 6.
+First build sprint (SPR-001): environment, data core and access. Weeks 1–6
+went to requirements, specification and design.
+
+In review: initial `clientes` / `inmuebles` model, staff session login, roles
+Administrador and Ejecutivo. Also committed this sprint: user management
+(HU-02), audit log (HU-30), client and company registration.
 
 **Still unknown — do not invent answers:**
 
@@ -232,7 +261,9 @@ with the counterpart. Validation meeting is week 6.
 - Real document templates and their format (Word? PDF? must the layout be
   reproduced exactly? — this determines the document generation library)
 - Exact case states and valid transitions
-- Exact roles and their permissions
+- Roles beyond Administrador and Ejecutivo (a "supervisor" appears in HU-05
+  and HU-41 but is not confirmed), whether an Ejecutivo sees the dashboard,
+  and the session inactivity timeout
 - Signature provider API details and credentials
 - Payment provider
 - Production hosting
@@ -261,7 +292,8 @@ explicitly in code comments as `# ASSUMPTION: pending validation with Easy Offic
 
 ## Reference documents
 
-Project documentation lives in the team's evidence repository under `docs/`:
+Project documentation lives outside the code repositories (the team's
+documentation folder, `docs/`; not yet published to the evidence repository):
 requirements matrix (`MRQ-001`), business rules (`RN-001`), MVP scope
 (`ALC-001`), product vision (`PV-001`), backlog (`BKL-001`), risk register
 (`RSK-001`), traceability matrix (`TRZ-001`). Ask for them if a decision seems to
