@@ -18,3 +18,21 @@ class TimestampedModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+class PermisoSistema(models.Model):
+    """Holder for permissions that guard a feature rather than a model.
+
+    No table is created. Roles are ``auth.Group`` rows, and these permissions
+    are attached to them like any model permission.
+    """
+
+    class Meta:
+        managed = False
+        default_permissions = ()
+        permissions = [
+            ("view_dashboard", _("Can view the operational dashboard")),
+        ]
+
+    def __str__(self) -> str:
+        return str(self._meta.verbose_name)
