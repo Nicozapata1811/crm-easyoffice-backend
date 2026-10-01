@@ -236,6 +236,10 @@ SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True
 # https://docs.djangoproject.com/en/dev/ref/settings/#x-frame-options
 X_FRAME_OPTIONS = "DENY"
+# ASSUMPTION: pending validation with Easy Office. Idle seconds before the
+# session expires (HU-01); every request pushes the expiry forward.
+SESSION_COOKIE_AGE = env.int("DJANGO_SESSION_INACTIVITY_SECONDS", default=1800)
+SESSION_SAVE_EVERY_REQUEST = True
 
 # EMAIL
 # ------------------------------------------------------------------------------

@@ -24,6 +24,11 @@ DJANGO_ACCOUNT_ALLOW_REGISTRATION=True
 # ------------------------------------------------------------------------------
 WEB_CONCURRENCY=4
 
+# Session
+# ------------------------------------------------------------------------------
+# Idle seconds before the session expires. Pending validation with Easy Office.
+DJANGO_SESSION_INACTIVITY_SECONDS=1800
+
 # Redis
 # ------------------------------------------------------------------------------
 REDIS_URL=redis://redis:6379/0
