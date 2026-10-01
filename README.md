@@ -189,7 +189,10 @@ del navegador. El login está protegido con el token CSRF de Django y las
 credenciales inválidas responden siempre lo mismo, exista o no el usuario. La
 sesión expira tras `DJANGO_SESSION_INACTIVITY_SECONDS` segundos sin actividad
 (1800 por defecto; valor pendiente de validar con Easy Office). Los endpoints
-viven en `crm_easyoffice/users/api/auth_views.py`.
+viven en `crm_easyoffice/users/api/auth_views.py`. En desarrollo,
+`config/settings/local.py` confía en el origen del servidor de Vite
+(`http://localhost:5173`) para el chequeo CSRF, porque el frontend llega a la
+API a través de su proxy.
 
 **Roles = grupos de Django.** La tabla `ROL` de MOD-001 se implementa con
 `django.contrib.auth.models.Group`: nombre y permisos. Un usuario tiene a lo más
