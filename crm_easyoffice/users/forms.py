@@ -1,5 +1,6 @@
 from allauth.account.forms import SignupForm
 from django.contrib.auth import forms as admin_forms
+from django.core.exceptions import ValidationError
 from django.forms import EmailField
 from django.utils.translation import gettext_lazy as _
 
@@ -10,6 +11,13 @@ class UserAdminChangeForm(admin_forms.UserChangeForm):
     class Meta(admin_forms.UserChangeForm.Meta):
         model = User
         field_classes = {"email": EmailField}
+
+    def clean_groups(self):
+        """Groups are the roles of MOD-001, and a user holds at most one."""
+        groups = self.cleaned_data["groups"]
+        if len(groups) > 1:
+            raise ValidationError(_("A user can have only one role."))
+        return groups
 
 
 class UserAdminCreationForm(admin_forms.AdminUserCreationForm):

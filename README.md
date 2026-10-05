@@ -100,6 +100,9 @@ La documentación de la API requiere una sesión de administrador.
 
 ### Variables de entorno
 
+`DJANGO_SESSION_INACTIVITY_SECONDS` fija los segundos de inactividad tras los
+que expira la sesión.
+
 Las credenciales viven en `.envs/`, que **no** se versiona. Los archivos se
 generan al crear el proyecto y no deben commitearse nunca: este repositorio es
 público. Ningún dato personal real entra en fixtures, pruebas, migraciones ni
@@ -176,6 +179,101 @@ interfaces propias en `integrations/`. Las credenciales del proveedor de firma
 aún no están disponibles y el proveedor de pago no ha sido definido, por lo que
 existen implementaciones simuladas que satisfacen el mismo contrato. Ningún SDK
 de proveedor se importa fuera de esa aplicación.
+
+---
+
+## Autenticación y roles
+
+**Sesión con cookies `httpOnly`** (decisión AD-03), no JWT en el almacenamiento
+del navegador. El login está protegido con el token CSRF de Django y las
+credenciales inválidas responden siempre lo mismo, exista o no el usuario. La
+sesión expira tras `DJANGO_SESSION_INACTIVITY_SECONDS` segundos sin actividad
+(1800 por defecto; valor pendiente de validar con Easy Office). Los endpoints
+viven en `crm_easyoffice/users/api/auth_views.py`. En desarrollo,
+`config/settings/local.py` confía en el origen del servidor de Vite
+(`http://localhost:5173`) para el chequeo CSRF, porque el frontend llega a la
+API a través de su proxy.
+
+**Roles = grupos de Django.** La tabla `ROL` de MOD-001 se implementa con
+`django.contrib.auth.models.Group`: nombre y permisos. Un usuario tiene a lo más
+un rol, y los roles nuevos se crean como datos desde el panel de administración,
+sin código (RN-33). La migración `core/0002_seed_roles` siembra los dos roles
+confirmados:
+
+| Rol | Permisos |
+|---|---|
+| Administrador (RN-31) | Todos sobre clientes, inmuebles, usuarios y roles, más `core.view_dashboard` |
+| Ejecutivo (RN-32) | Crear, modificar y consultar clientes; consultar inmuebles. **Sin permisos de eliminación** (RF-04) |
+
+Si el Ejecutivo puede ver el panel operativo no está definido; por ahora no
+puede. Cada aplicación nueva asigna sus permisos a estos roles en su propia
+migración de datos.
+
+El registro de cada ingreso en auditoría (criterio de HU-01) queda pendiente del
+módulo de auditoría (RF-15, HU-30).
+
+---
+
+## API
+
+Contrato compartido con el frontend. Todas las rutas usan la sesión y, en
+métodos no seguros, la cabecera `X-CSRFToken`.
+
+| Método y ruta | Acceso | Respuesta |
+|---|---|---|
+| `GET /api/auth/csrf/` | Público | `{"csrfToken": "..."}` y deja la cookie CSRF |
+| `POST /api/auth/login/` | Público, con CSRF | Cuerpo `{"email", "password"}`. `200` con el usuario de sesión; `400` con un mensaje único si falla |
+| `POST /api/auth/logout/` | Sesión activa | `204` |
+| `GET /api/auth/me/` | Sesión activa (`403` sin sesión) | Usuario de sesión |
+
+Usuario de sesión:
+
+```json
+{
+  "id": 1,
+  "email": "usuario@example.com",
+  "name": "Nombre Apellido",
+  "rol": "Administrador",
+  "permisos": ["clientes.add_cliente", "core.view_dashboard"]
+}
+```
+
+`rol` es `null` si el usuario no tiene rol. El frontend decide qué mostrar según
+`permisos`, no según el nombre del rol.
+
+**Planificado, aún no implementado** — indicadores del panel operativo (RF-14,
+HU-41). Depende de los servicios contratados y los pagos (HU-10, HU-48).
+
+`GET /api/panel/indicadores/?desde=AAAA-MM-DD&hasta=AAAA-MM-DD`, requiere
+`core.view_dashboard`:
+
+```json
+{
+  "periodo": {"desde": "2026-09-01", "hasta": "2026-09-30"},
+  "clientes": {"total": 0, "nuevos": 0},
+  "servicios": {"activos": 0, "por_vencer": 0, "vencidos": 0, "dias_aviso": 30},
+  "ventas": {
+    "moneda": "CLP",
+    "total": 0,
+    "por_servicio": [{"servicio": "Domicilio tributario", "monto": 0, "cantidad": 0}],
+    "por_ejecutivo": [{"ejecutivo": "Nombre", "monto": 0, "cantidad": 0}]
+  },
+  "tramites_pendientes": 0,
+  "documentos_pendientes_firma": 0
+}
+```
+
+`dias_aviso` es la ventana de "por vencer"; 30 días es una suposición pendiente
+de validar (HU-42 propone 60, 30, 15 y 7).
+
+---
+
+## Estado actual
+
+Sprint 1 (22 de septiembre – 3 de octubre de 2026): núcleo de datos y accesos.
+Están el modelo inicial de clientes e inmuebles, la autenticación del personal
+interno y los roles Administrador y Ejecutivo. Los estados de los trámites, las
+plantillas reales, el proveedor de firma y el de pago siguen pendientes.
 
 ---
 
