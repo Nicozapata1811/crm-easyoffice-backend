@@ -107,6 +107,7 @@ LOCAL_APPS = [
     "crm_easyoffice.documentos",
     "crm_easyoffice.integrations",
     "crm_easyoffice.migracion",
+    "crm_easyoffice.panel",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
