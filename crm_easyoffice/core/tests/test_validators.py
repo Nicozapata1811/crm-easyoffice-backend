@@ -7,6 +7,7 @@ import pytest
 from django.core.exceptions import ValidationError
 
 from crm_easyoffice.core.validators import compute_rut_check_digit
+from crm_easyoffice.core.validators import normalize_rut
 from crm_easyoffice.core.validators import validate_rut
 
 
@@ -46,3 +47,16 @@ def test_validate_rut_rejects_invalid(rut: str, code: str) -> None:
     with pytest.raises(ValidationError) as excinfo:
         validate_rut(rut)
     assert excinfo.value.code == code
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("11.111.112-k", "11111112-K"),
+        (" 12345678-5 ", "12345678-5"),
+        ("12 345 678-5", "12345678-5"),
+        ("12345678-5", "12345678-5"),
+    ],
+)
+def test_normalize_rut(value: str, expected: str) -> None:
+    assert normalize_rut(value) == expected

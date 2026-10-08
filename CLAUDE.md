@@ -53,6 +53,7 @@ tramites/       tipo de trámite (configuration), trámite, state machine
 documentos/     plantillas (versioned), documento generation, hashing
 integrations/   SignatureService, PaymentService + implementations
 migracion/      Excel → PostgreSQL import pipeline
+panel/          dashboard indicators and their Excel export (no models)
 ```
 
 **Rules for the boundaries**
@@ -174,9 +175,26 @@ Never import a provider SDK outside `integrations/`.
 - `/api/auth-token/` and `TokenAuthentication` come from cookiecutter and
   conflict with AD-03. Removal is pending a team decision.
 
-**Planned:** `GET /api/panel/indicadores/?desde=&hasta=` for the RF-14
-dashboard, requiring `core.view_dashboard`. Payload in the README; the frontend
-already consumes that shape from a mock.
+---
+
+## Clients and dashboard
+
+- **Clients API** (`clientes/api/`): `/api/clientes/` supports list, record,
+  create and PATCH; there is no DELETE (RF-04). Writes nest the client's
+  `persona` or `empresa`.
+  - RUTs are normalised with `core.validators.normalize_rut` before validation.
+  - A RUT that is already a client is rejected (HU-52). A Persona or Empresa on
+    record that is not yet a client is linked instead.
+  - `Cliente.folio` (`CLI-000001`) is assigned in `save()`.
+  - The final client fields (MD-01) are still pending; `seed_demo_clientes`
+    loads fictitious data meanwhile.
+- **Dashboard** (`panel/`): `GET /api/panel/indicadores/` and `.../exportar/`
+  (`.xlsx` via openpyxl), both requiring `core.view_dashboard`.
+  - Client counts come from `clientes.services.contar_clientes`.
+  - Everything else comes from `panel/ejemplo.py` and is listed in
+    `datos_de_ejemplo` until services, sales and documents have models. Replace
+    each example key with a real service function as those apps land, and drop
+    it from `datos_de_ejemplo`.
 
 ---
 
@@ -246,14 +264,17 @@ The repository is **public**.
 
 ---
 
-## Current status (Sprint 1 · 22 Sep – 3 Oct 2026)
+## Current status (Sprint 2 · 6 – 17 Oct 2026)
 
-First build sprint (SPR-001): environment, data core and access. Weeks 1–6
-went to requirements, specification and design.
+Done:
+- the `clientes` / `inmuebles` model, staff session login, and the
+  Administrador and Ejecutivo roles;
+- the clients API: create, edit, record, search and folio (HU-06, HU-07,
+  HU-47, HU-49, HU-51, HU-52);
+- the dashboard indicators endpoint with its Excel export.
 
-In review: initial `clientes` / `inmuebles` model, staff session login, roles
-Administrador and Ejecutivo. Also committed this sprint: user management
-(HU-02), audit log (HU-30), client and company registration.
+Still to build: user management (HU-02) and the audit log (HU-30, RF-15). Until
+the audit log exists, client changes carry `TODO(RF-15)`.
 
 **Still unknown — do not invent answers:**
 
