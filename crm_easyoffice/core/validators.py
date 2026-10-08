@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
 RUT_PATTERN = re.compile(r"^(\d{7,8})-([\dkK])$")
+RUT_SEPARATORS = re.compile(r"[.\s]")
 
 MODULUS = 11
 MIN_FACTOR = 2
@@ -37,6 +38,18 @@ def compute_rut_check_digit(number: str) -> str:
     if remainder == MODULUS - 1:
         return "K"
     return str(remainder)
+
+
+def normalize_rut(value: str) -> str:
+    """Return a RUT in storage form: no dots or spaces, upper-case K.
+
+    Args:
+        value: A RUT as typed, for example ``12.345.678-k``.
+
+    Returns:
+        The normalised RUT. It is not validated.
+    """
+    return RUT_SEPARATORS.sub("", value).upper()
 
 
 def validate_rut(value: str) -> None:
