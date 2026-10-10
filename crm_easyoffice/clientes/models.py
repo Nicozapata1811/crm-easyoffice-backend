@@ -10,6 +10,7 @@ what a trámite needs, and no real record is ever committed to this repository.
 from __future__ import annotations
 
 from django.db import models
+from django.db import transaction
 from django.db.models import F
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
@@ -98,6 +99,16 @@ class Empresa(TimestampedModel):
         return f"{self.razon_social} ({self.rut})"
 
 
+class TipoCliente(models.TextChoices):
+    PERSONA = "persona", _("persona")
+    EMPRESA = "empresa", _("empresa")
+
+
+def format_folio(pk: int) -> str:
+    """Return the folio for a client primary key, for example ``CLI-000042``."""
+    return f"CLI-{pk:06d}"
+
+
 class Cliente(TimestampedModel):
     """A party that is a customer of Easy Office.
 
@@ -111,8 +122,19 @@ class Cliente(TimestampedModel):
     representative-only Persona never being a client. Client-level attributes
     such as the assigned executive or the date of first contact are not
     modelled until the counterpart confirms them.
+
+    ASSUMPTION: pending validation with Easy Office. The folio format is ours;
+    their spreadsheet may already number clients (HU-32).
     """
 
+    folio = models.CharField(  # noqa: DJ001 - null until save() assigns it
+        _("folio"),
+        max_length=12,
+        unique=True,
+        null=True,
+        editable=False,
+        help_text=_("Assigned on creation from the primary key."),
+    )
     persona = models.OneToOneField(
         Persona,
         verbose_name=_("persona"),
@@ -147,9 +169,32 @@ class Cliente(TimestampedModel):
     def __str__(self) -> str:
         return str(self.persona or self.empresa)
 
+    def save(self, *args, **kwargs) -> None:
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if not self.folio:
+                self.folio = format_folio(self.pk)
+                super().save(update_fields=["folio"])
+
     @property
     def es_empresa(self) -> bool:
         return self.empresa_id is not None
+
+    @property
+    def tipo(self) -> str:
+        return TipoCliente.EMPRESA if self.es_empresa else TipoCliente.PERSONA
+
+    @property
+    def parte(self) -> Persona | Empresa:
+        """The Persona or Empresa this client is."""
+        return self.empresa if self.es_empresa else self.persona  # type: ignore[return-value]
+
+    @property
+    def nombre(self) -> str:
+        """Full name for a person, razón social for a company."""
+        if self.empresa is not None:
+            return self.empresa.razon_social
+        return self.persona.nombre_completo if self.persona else ""
 
 
 class RepresentanteLegal(TimestampedModel):
