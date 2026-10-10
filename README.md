@@ -241,13 +241,37 @@ Usuario de sesión:
   "id": 1,
   "email": "usuario@example.com",
   "name": "Nombre Apellido",
+  "tipo": "staff",
+  "cliente": null,
   "rol": "Administrador",
   "permisos": ["clientes.add_cliente", "core.view_dashboard"]
 }
 ```
 
 `rol` es `null` si el usuario no tiene rol. El frontend decide qué mostrar según
-`permisos`, no según el nombre del rol.
+`permisos`, no según el nombre del rol. `tipo` es `"cliente"` para una cuenta del
+portal, y entonces `cliente` trae `{"id", "folio", "nombre"}`.
+
+### Cuentas de cliente del portal (HU-03)
+
+Los clientes inician sesión con las mismas rutas `/api/auth/*`. Una cuenta de
+cliente no tiene rol ni permisos, así que no puede usar las rutas del personal.
+
+| Método y ruta | Acceso | Respuesta |
+|---|---|---|
+| `POST /api/portal/registro/` | Público, con CSRF; máximo `DJANGO_THROTTLE_REGISTRO` (10/hora por defecto) | `201` con el usuario de sesión, ya autenticado |
+
+Cuerpo: `tipo` (`persona` o `empresa`), `rut`, `email`, `password` y, según el
+tipo, `nombres`, `apellido_paterno`, `apellido_materno` (opcional) o
+`razon_social`.
+
+- Un RUT nuevo crea la persona o empresa y el cliente.
+- Un RUT ya registrado se vincula solo si su email coincide con el informado y
+  el cliente aún no tiene cuenta. Es una suposición pendiente de validar con
+  Easy Office.
+- Cualquier otro rechazo responde `400` con un único `detail`, para no revelar
+  qué RUT o emails existen. Una contraseña débil responde `400` en `password`.
+- No se verifica el email todavía.
 
 ### Clientes (HU-06, HU-07, HU-47, HU-49, HU-51, HU-52)
 
@@ -356,6 +380,7 @@ Sprint 2 (6 – 17 de octubre de 2026). Ya están:
 
 - el modelo de clientes e inmuebles;
 - la autenticación del personal interno y los roles Administrador y Ejecutivo;
+- el registro y el ingreso de clientes al portal (HU-03);
 - la API de clientes (registro, edición, ficha, búsqueda y folio);
 - los indicadores del panel operativo, exportables a Excel.
 

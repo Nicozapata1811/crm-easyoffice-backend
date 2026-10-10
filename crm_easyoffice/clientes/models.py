@@ -9,6 +9,7 @@ what a trámite needs, and no real record is ever committed to this repository.
 
 from __future__ import annotations
 
+from django.conf import settings
 from django.db import models
 from django.db import transaction
 from django.db.models import F
@@ -247,3 +248,32 @@ class RepresentanteLegal(TimestampedModel):
 
     def __str__(self) -> str:
         return f"{self.persona} → {self.empresa}"
+
+
+class CuentaCliente(TimestampedModel):
+    """A portal login for a client (HU-03).
+
+    Kept apart from the staff roles: a client user has no group, so staff
+    permission checks never let them through.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        verbose_name=_("usuario"),
+        on_delete=models.CASCADE,
+        related_name="cuenta_cliente",
+    )
+    cliente = models.ForeignKey(
+        Cliente,
+        verbose_name=_("cliente"),
+        on_delete=models.PROTECT,
+        related_name="cuentas",
+    )
+    activa = models.BooleanField(_("activa"), default=True)
+
+    class Meta:
+        verbose_name = _("cuenta de cliente")
+        verbose_name_plural = _("cuentas de cliente")
+
+    def __str__(self) -> str:
+        return f"{self.user} → {self.cliente}"

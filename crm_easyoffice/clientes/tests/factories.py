@@ -8,9 +8,11 @@ from factory import SubFactory
 from factory.django import DjangoModelFactory
 
 from crm_easyoffice.clientes.models import Cliente
+from crm_easyoffice.clientes.models import CuentaCliente
 from crm_easyoffice.clientes.models import Empresa
 from crm_easyoffice.clientes.models import Persona
 from crm_easyoffice.core.validators import compute_rut_check_digit
+from crm_easyoffice.users.tests.factories import UserFactory
 
 
 def synthetic_rut(number: int) -> str:
@@ -43,3 +45,11 @@ class ClienteFactory(DjangoModelFactory[Cliente]):
 
     class Meta:
         model = Cliente
+
+
+class CuentaClienteFactory(DjangoModelFactory[CuentaCliente]):
+    user = SubFactory(UserFactory)
+    cliente = SubFactory(ClienteFactory)
+
+    class Meta:
+        model = CuentaCliente

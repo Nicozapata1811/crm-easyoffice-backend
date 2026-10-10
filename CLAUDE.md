@@ -174,6 +174,12 @@ Never import a provider SDK outside `integrations/`.
 - Logins are not audited yet: `TODO(RF-15)` in `LoginView`.
 - `/api/auth-token/` and `TokenAuthentication` come from cookiecutter and
   conflict with AD-03. Removal is pending a team decision.
+- **Client portal accounts** (HU-03): `clientes.CuentaCliente` links a `User`
+  to a `Cliente`. Clients register at `POST /api/portal/registro/`
+  (`clientes.services.registrar_cuenta_cliente`) and then log in through the
+  same `/api/auth/*` endpoints. A client user has no group, so staff
+  permissions never apply; portal views use `clientes.api.permissions.EsCliente`.
+  `me` adds `tipo` (`cliente` | `staff`) and `cliente`.
 
 ---
 
@@ -271,7 +277,8 @@ Done:
   Administrador and Ejecutivo roles;
 - the clients API: create, edit, record, search and folio (HU-06, HU-07,
   HU-47, HU-49, HU-51, HU-52);
-- the dashboard indicators endpoint with its Excel export.
+- the dashboard indicators endpoint with its Excel export;
+- client portal registration and login (HU-03).
 
 Still to build: user management (HU-02) and the audit log (HU-30, RF-15). Until
 the audit log exists, client changes carry `TODO(RF-15)`.
