@@ -168,7 +168,9 @@ class TestAplicarResultado:
         orden = OrdenPagoFactory.create()
 
         aplicar_resultado(
-            orden.pk, resultado(orden, PaymentStatus.REFUNDED), origen="test",
+            orden.pk,
+            resultado(orden, PaymentStatus.REFUNDED),
+            origen="test",
         )
 
         orden.refresh_from_db()
