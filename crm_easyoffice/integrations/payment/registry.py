@@ -32,12 +32,7 @@ class MedioPago:
 
 
 MEDIOS = {
-    KLAP: MedioPago(
-        KLAP,
-        "Tarjeta de crédito, débito o prepago",
-        "Visa, Mastercard y American Express · Klap",
-        MODAL,
-    ),
+    KLAP: MedioPago(KLAP, "Klap", "Tarjetas de crédito, débito y prepago", MODAL),
     FLOW: MedioPago(FLOW, "Flow", "Webpay, transferencia y otros medios", REDIRECCION),
     SIMULATED: MedioPago(SIMULATED, "Pago simulado", "Solo para pruebas", REDIRECCION),
 }
