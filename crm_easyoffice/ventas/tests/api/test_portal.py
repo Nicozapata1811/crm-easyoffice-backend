@@ -138,3 +138,35 @@ def test_only_clients_reach_the_portal_sales(quien, user):
         api_client.force_authenticate(user)
 
     assert api_client.get(VENTAS_URL).status_code == HTTPStatus.FORBIDDEN
+
+
+def test_payment_methods_list_the_enabled_providers(settings):
+    settings.PAYMENT_PROVIDERS = ["klap", "flow"]
+
+    response = APIClient().get(reverse("portal:medio-pago-list"))
+
+    assert [medio["codigo"] for medio in response.data] == ["klap", "flow"]
+    assert response.data[0]["checkout"]["tipo"] == "modal"
+    assert response.data[0]["checkout"]["script_url"]
+    assert response.data[1]["checkout"] == {"tipo": "redireccion", "script_url": None}
+
+
+def test_the_client_chooses_the_provider(cliente_api, cuenta, tareas, settings):
+    settings.PAYMENT_PROVIDERS = ["klap", "flow"]
+    venta = VentaFactory.create(cliente=cuenta.cliente)
+
+    response = cliente_api.post(pagar_url(venta), {"proveedor": "flow"}, format="json")
+
+    assert response.status_code == HTTPStatus.ACCEPTED
+    assert response.data["proveedor"] == "flow"
+    assert response.data["checkout"] == "redireccion"
+
+
+def test_a_disabled_provider_is_a_bad_request(cliente_api, cuenta, tareas, settings):
+    settings.PAYMENT_PROVIDERS = ["klap"]
+    venta = VentaFactory.create(cliente=cuenta.cliente)
+
+    response = cliente_api.post(pagar_url(venta), {"proveedor": "flow"}, format="json")
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert "proveedor" in response.data

@@ -354,18 +354,39 @@ de otro cliente):
 | Método y ruta | Respuesta |
 |---|---|
 | `GET /api/portal/servicios/` | Servicios activos (público), con `precio_confirmado` |
+| `GET /api/portal/medios-pago/` | Medios de pago habilitados (público): `codigo`, `nombre`, `descripcion` y `checkout` (`{"tipo": "modal" \| "redireccion", "script_url"}`) |
 | `POST /api/portal/ventas/` | Cuerpo `{"items": [{"servicio": "<código>", "cantidad": 1}]}`. `201` con la venta |
 | `GET /api/portal/ventas/`, `GET /api/portal/ventas/{id}/` | Ventas del cliente, con su última orden |
-| `POST /api/portal/ventas/{id}/pagar/` | `202` con la orden; `409` si la venta no está pendiente de pago |
-| `GET /api/portal/ordenes/{id}/` | Estado de la orden, `id_externo` y `checkout_script_url` |
+| `POST /api/portal/ventas/{id}/pagar/` | Cuerpo `{"proveedor": "klap" \| "flow"}` (sin él, el primero habilitado). `202` con la orden; `400` si el medio no está habilitado; `409` si la venta no está pendiente de pago |
+| `GET /api/portal/ordenes/{id}/` | Estado de la orden, `proveedor`, `id_externo`, `checkout`, `checkout_script_url` y `redirect_url` |
+
+**Medios de pago.** `PAYMENT_PROVIDERS` lista los proveedores entre los que
+elige el cliente, en orden (`klap`, `flow`; `simulated` solo para pruebas). Cada
+orden guarda su proveedor. Si el cliente cambia de medio, la orden abierta del
+otro proveedor queda `cancelada`; un pago que aun así llegue se registra igual.
+Easy Office no ha elegido proveedor: ambos son una suposición pendiente de
+validar.
 
 Al pagar se crea la orden en estado `creando` y una tarea de Celery la crea en
-Klap. El portal consulta `GET /api/portal/ordenes/{id}/` hasta que la orden
-queda `pendiente` con `id_externo`, y abre el checkout con ese id. Si una orden
-sigue `pendiente` más de 10 segundos, la misma consulta pide su estado a Klap
-(RF-23), por si un webhook no llegó.
+el proveedor. El portal consulta `GET /api/portal/ordenes/{id}/` hasta que la
+orden queda `pendiente` con `id_externo`, y abre el pago: el modal de Klap, o
+una redirección a la página de Flow (`redirect_url`). Si una orden sigue
+`pendiente` más de 10 segundos, la misma consulta pide su estado al proveedor
+(RF-23), por si una notificación no llegó.
 
-Webhooks: `POST /api/pagos/webhooks/klap/{validacion|confirmacion|rechazo}/`,
+**Vuelta al portal.** Ambos proveedores devuelven el navegador a
+`/api/pagos/retorno/{orden}/` (Flow lo hace con un POST, que el portal no puede
+recibir). Ese endpoint no cambia nada: pide una consulta del estado y redirige
+con `303` a `PORTAL_BASE_URL/pagos/{orden}/resultado`, o a `/cancelado` si
+llega con `?cancelado=1`.
+
+Notificaciones de Flow: `POST /api/pagos/webhooks/flow/confirmacion/`, sin
+sesión. Flow solo envía un `token`, sin firma; el endpoint responde `200` al
+tiro y una tarea de Celery consulta `payment/getStatus` con ese token (firmado
+con la secret key), que es lo que autentica el aviso, y aplica el resultado. Un
+token que Flow no reconoce queda registrado como `firma_invalida`.
+
+Webhooks de Klap: `POST /api/pagos/webhooks/klap/{validacion|confirmacion|rechazo}/`,
 sin sesión.
 - En confirmación y rechazo se verifica la cabecera `Apikey`
   (`sha256(reference_id + order_id + api key)`); si no coincide, `401`.
@@ -425,6 +446,23 @@ obligatorios, y `desde` no puede ser posterior a `hasta` (si no, `400`).
 
 `dias_aviso` es la ventana de "por vencer"; 30 días es una suposición pendiente
 de validar (HU-42 propone 60, 30, 15 y 7).
+
+### Pago con Flow en local
+
+Flow no publica credenciales compartidas: cada desarrollador crea una cuenta en
+[sandbox.flow.cl](https://sandbox.flow.cl) y copia `apiKey` y `secretKey` desde
+"Mis datos".
+
+1. En `.envs/.local/.django` define `PAYMENT_PROVIDERS=klap,flow`,
+   `FLOW_API_KEY` y `FLOW_SECRET_KEY`. Usa el mismo túnel que Klap
+   (`PAYMENT_TUNNEL_METRICS_URL`); no requiere configuración adicional.
+2. Reinicia `django` y `celeryworker`.
+3. Elige Flow en "Confirma y paga". Tarjeta de prueba en
+   [Credenciales de prueba](https://developers.flow.cl/docs/credentials); si el
+   banco simulado lo pide, RUT `11111111-1` y clave `123`.
+
+`FLOW_PAYMENT_METHOD` (por defecto `9`) elige el medio dentro de Flow: `9`
+muestra todos los que tenga habilitados la cuenta.
 
 ### Pago con Klap en local
 

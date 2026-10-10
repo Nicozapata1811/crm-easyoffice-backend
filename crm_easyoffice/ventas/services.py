@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from crm_easyoffice.integrations.payment.base import PaymentStatus
+from crm_easyoffice.integrations.payment.registry import proveedores_habilitados
 
 from .models import ItemVenta
 from .models import OrdenPago
@@ -57,6 +59,10 @@ class VentaNoPagableError(Exception):
     """The sale is not waiting for payment."""
 
 
+class ProveedorNoHabilitadoError(Exception):
+    """The client chose a payment provider that is not enabled."""
+
+
 def crear_venta(cliente: Cliente, items: Iterable[tuple[Servicio, int]]) -> Venta:
     """Record a sale at today's list prices (RN-08)."""
     lineas = [
@@ -81,35 +87,57 @@ def crear_venta(cliente: Cliente, items: Iterable[tuple[Servicio, int]]) -> Vent
     return venta
 
 
-def iniciar_pago(venta: Venta) -> OrdenPago:
-    """Return the sale's open payment attempt, or start a new one.
+def iniciar_pago(venta: Venta, proveedor: str) -> OrdenPago:
+    """Return the sale's open attempt with ``proveedor``, or start a new one.
+
+    An open attempt with another provider is cancelled: the client switched.
+    A payment that still arrives for it is recorded anyway.
 
     Raises:
         VentaNoPagableError: The sale is not waiting for payment.
+        ProveedorNoHabilitadoError: ``proveedor`` is not enabled.
     """
     from .tasks import crear_orden_en_proveedor  # noqa: PLC0415
 
+    if proveedor not in proveedores_habilitados():
+        raise ProveedorNoHabilitadoError
     with transaction.atomic():
         venta = Venta.objects.select_for_update().get(pk=venta.pk)
         if venta.estado != Venta.Estado.PENDIENTE_PAGO:
             raise VentaNoPagableError
 
         vigente_desde = timezone.now() - timedelta(
-            minutes=settings.KLAP_ORDER_EXPIRATION_MINUTES,
+            minutes=settings.PAYMENT_ORDER_EXPIRATION_MINUTES,
         )
         abiertas = venta.ordenes.filter(estado__in=OrdenPago.ABIERTAS)
         abiertas.filter(created_at__lt=vigente_desde).update(estado=Estado.EXPIRADA)
-        abierta = abiertas.filter(created_at__gte=vigente_desde).first()
+        abiertas.exclude(proveedor=proveedor).update(estado=Estado.CANCELADA)
+        abierta = abiertas.filter(proveedor=proveedor).first()
         if abierta is not None:
             return abierta
 
         orden = OrdenPago.objects.create(
             venta=venta,
-            proveedor=settings.PAYMENT_PROVIDER,
+            proveedor=proveedor,
             monto=venta.total,
         )
         transaction.on_commit(lambda: crear_orden_en_proveedor.delay(orden.pk))
     # TODO(RF-15): record the payment attempt in the audit log (HU-30).
+    return orden
+
+
+def orden_de_resultado(resultado: PaymentResult) -> OrdenPago | None:
+    """The attempt a provider result refers to, by our reference and its id."""
+    try:
+        orden = OrdenPago.objects.get(referencia=uuid.UUID(resultado.reference))
+    except ValueError, OrdenPago.DoesNotExist:
+        return None
+    if (
+        orden.id_externo
+        and resultado.external_id
+        and orden.id_externo != resultado.external_id
+    ):
+        return None
     return orden
 
 
