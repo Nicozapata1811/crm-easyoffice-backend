@@ -54,6 +54,7 @@ documentos/     plantillas (versioned), documento generation, hashing
 integrations/   SignatureService, PaymentService + implementations
 migracion/      Excel → PostgreSQL import pipeline
 panel/          dashboard indicators and their Excel export (no models)
+ventas/         price list, sales, payment attempts, payments, webhook log
 ```
 
 **Rules for the boundaries**
@@ -149,8 +150,17 @@ class PaymentProvider(ABC): ...
   implementation that satisfies the same contract; the real one drops in via an
   environment variable.
 - **Payment.** The company has **not decided** the provider yet. Options
-  mentioned were Transbank and Mercado Pago. Transbank in its integration
-  environment is our reference implementation.
+  mentioned were Transbank and Mercado Pago. `integrations/payment/klap.py`
+  implements Klap Checkout Flex (sandbox), chosen with `PAYMENT_PROVIDER=klap`
+  through `payment.registry.get_payment_provider`; it is an assumption until
+  Easy Office decides. Klap requires public HTTPS webhook URLs
+  and calls the validation webhook while it creates the order. Locally, the
+  `tunnel` service in `docker-compose.local.yml` (cloudflared quick tunnel)
+  provides one; `registry.webhook_base_url` reads its random URL from
+  `PAYMENT_TUNNEL_METRICS_URL` unless `PAYMENT_WEBHOOK_BASE_URL` is set.
+  The validation call cannot be signature-checked (Klap signs it with an
+  order_id it has not sent yet), so it is answered from our data only.
+  `httpx` is the HTTP client, used only inside `integrations/`.
 
 Never import a provider SDK outside `integrations/`.
 
@@ -201,6 +211,20 @@ Never import a provider SDK outside `integrations/`.
     `datos_de_ejemplo` until services, sales and documents have models. Replace
     each example key with a real service function as those apps land, and drop
     it from `datos_de_ejemplo`.
+
+- **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
+  `precio_confirmado=False`), `Venta`, `ItemVenta` (price copied, RN-08),
+  `OrdenPago` (one per attempt, RN-28), `Pago` and the append-only
+  `EventoPago`. State changes go through `ventas.services` only; the order's
+  transition table is `TRANSICIONES` there. Orders are created at the provider
+  by the `crear_orden_en_proveedor` Celery task, and `sincronizar_orden` polls
+  the provider as a fallback to webhooks (RF-23).
+  - Portal: `/api/portal/servicios/`, `/api/portal/ventas/` (+ `pagar/`),
+    `/api/portal/ordenes/{id}/`. Webhooks: `/api/pagos/webhooks/<provider>/<event>/`.
+    Backoffice: read-only `/api/ventas/` with `ventas.view_venta`.
+  - Not built yet: a refund endpoint (refund policy undefined) and real sales
+    figures in the dashboard (`ventas` is still an example key: sales have no
+    executive yet).
 
 ---
 
@@ -278,7 +302,9 @@ Done:
 - the clients API: create, edit, record, search and folio (HU-06, HU-07,
   HU-47, HU-49, HU-51, HU-52);
 - the dashboard indicators endpoint with its Excel export;
-- client portal registration and login (HU-03).
+- client portal registration and login (HU-03);
+- sales and online payment with Klap Checkout Flex in its sandbox (HU-38,
+  HU-39, HU-40, HU-57).
 
 Still to build: user management (HU-02) and the audit log (HU-30, RF-15). Until
 the audit log exists, client changes carry `TODO(RF-15)`.
@@ -293,7 +319,8 @@ the audit log exists, client changes carry `TODO(RF-15)`.
   and HU-41 but is not confirmed), whether an Ejecutivo sees the dashboard,
   and the session inactivity timeout
 - Signature provider API details and credentials
-- Payment provider
+- Payment provider (Klap is implemented as an assumption), prices, and the
+  refund policy
 - Production hosting
 
 If a task depends on one of these, say so rather than assuming. Mark assumptions

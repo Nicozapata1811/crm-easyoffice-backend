@@ -108,6 +108,7 @@ LOCAL_APPS = [
     "crm_easyoffice.integrations",
     "crm_easyoffice.migracion",
     "crm_easyoffice.panel",
+    "crm_easyoffice.ventas",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -372,6 +373,37 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
     "SCHEMA_PATH_PREFIX": "/api/",
+    "ENUM_NAME_OVERRIDES": {
+        "TipoClienteEnum": "crm_easyoffice.clientes.models.TipoCliente",
+        "TipoSesionEnum": ["cliente", "staff"],
+        "TipoPagoEnum": "crm_easyoffice.ventas.models.Pago.Tipo",
+        "EstadoVentaEnum": "crm_easyoffice.ventas.models.Venta.Estado",
+        "EstadoOrdenPagoEnum": "crm_easyoffice.ventas.models.OrdenPago.Estado",
+    },
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
+
+# Payments
+# ------------------------------------------------------------------------------
+# ASSUMPTION: pending validation with Easy Office. The provider is undecided;
+# "simulated" or "klap" (Klap Checkout Flex, sandbox by default).
+PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", default="simulated")
+KLAP_API_KEY = env("KLAP_API_KEY", default="")
+KLAP_API_BASE_URL = env(
+    "KLAP_API_BASE_URL",
+    default="https://api-pasarela-sandbox.mcdesaqa.cl",
+)
+KLAP_CHECKOUT_JS_URL = env(
+    "KLAP_CHECKOUT_JS_URL",
+    default="https://sandbox.mcdesaqa.cl/pagos/checkout-flex/v1/main.min.js",
+)
+KLAP_METHODS = env.list("KLAP_METHODS", default=["tarjetas"])
+KLAP_ORDER_EXPIRATION_MINUTES = env.int("KLAP_ORDER_EXPIRATION_MINUTES", default=30)
+# Public HTTPS origin Klap posts webhooks to; Klap refuses orders without one.
+# Locally, a tunnel to port 8000 (cloudflared, ngrok).
+PAYMENT_WEBHOOK_BASE_URL = env("PAYMENT_WEBHOOK_BASE_URL", default="")
+# Local only: cloudflared's /quicktunnel endpoint, read when the URL above is
+# empty (the "tunnel" service in docker-compose.local.yml).
+PAYMENT_TUNNEL_METRICS_URL = env("PAYMENT_TUNNEL_METRICS_URL", default="")
+PORTAL_BASE_URL = env("PORTAL_BASE_URL", default="http://localhost:5173")
