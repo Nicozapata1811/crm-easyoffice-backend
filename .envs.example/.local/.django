@@ -29,9 +29,11 @@ CELERY_FLOWER_PASSWORD=localdev
 # https://developers.klap.cl/datos-de-prueba into KLAP_API_KEY.
 PAYMENT_PROVIDER=simulated
 KLAP_API_KEY=
-# Public HTTPS URL of a tunnel to localhost:8000 (cloudflared, ngrok). Klap
-# refuses orders without webhook URLs. Add the tunnel host to
-# DJANGO_EXTRA_ALLOWED_HOSTS.
+# Klap refuses orders without public HTTPS webhook URLs. Locally the "tunnel"
+# service provides one and the backend reads it from the line below.
+# PAYMENT_WEBHOOK_BASE_URL, when set, takes precedence (add its host to
+# DJANGO_EXTRA_ALLOWED_HOSTS).
+PAYMENT_TUNNEL_METRICS_URL=http://tunnel:2000/quicktunnel
 PAYMENT_WEBHOOK_BASE_URL=
 DJANGO_EXTRA_ALLOWED_HOSTS=
 PORTAL_BASE_URL=http://localhost:5173

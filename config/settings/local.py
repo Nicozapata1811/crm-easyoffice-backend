@@ -17,6 +17,7 @@ ALLOWED_HOSTS = [
     "localhost",
     "0.0.0.0",  # noqa: S104
     "127.0.0.1",
+    ".trycloudflare.com",
     *env.list("DJANGO_EXTRA_ALLOWED_HOSTS", default=[]),
 ]
 # The Vite dev server proxies /api with Host rewritten to :8000, but the

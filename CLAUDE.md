@@ -154,9 +154,13 @@ class PaymentProvider(ABC): ...
   implements Klap Checkout Flex (sandbox), chosen with `PAYMENT_PROVIDER=klap`
   through `payment.registry.get_payment_provider`; it is an assumption until
   Easy Office decides. Klap requires public HTTPS webhook URLs
-  (`PAYMENT_WEBHOOK_BASE_URL`) and calls the validation webhook while it
-  creates the order, so local end-to-end tests need a tunnel. `httpx` is the
-  HTTP client, used only inside `integrations/`.
+  and calls the validation webhook while it creates the order. Locally, the
+  `tunnel` service in `docker-compose.local.yml` (cloudflared quick tunnel)
+  provides one; `registry.webhook_base_url` reads its random URL from
+  `PAYMENT_TUNNEL_METRICS_URL` unless `PAYMENT_WEBHOOK_BASE_URL` is set.
+  The validation call cannot be signature-checked (Klap signs it with an
+  order_id it has not sent yet), so it is answered from our data only.
+  `httpx` is the HTTP client, used only inside `integrations/`.
 
 Never import a provider SDK outside `integrations/`.
 

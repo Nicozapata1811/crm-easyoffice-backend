@@ -403,4 +403,7 @@ KLAP_ORDER_EXPIRATION_MINUTES = env.int("KLAP_ORDER_EXPIRATION_MINUTES", default
 # Public HTTPS origin Klap posts webhooks to; Klap refuses orders without one.
 # Locally, a tunnel to port 8000 (cloudflared, ngrok).
 PAYMENT_WEBHOOK_BASE_URL = env("PAYMENT_WEBHOOK_BASE_URL", default="")
+# Local only: cloudflared's /quicktunnel endpoint, read when the URL above is
+# empty (the "tunnel" service in docker-compose.local.yml).
+PAYMENT_TUNNEL_METRICS_URL = env("PAYMENT_TUNNEL_METRICS_URL", default="")
 PORTAL_BASE_URL = env("PORTAL_BASE_URL", default="http://localhost:5173")

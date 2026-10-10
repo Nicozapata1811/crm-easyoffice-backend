@@ -425,24 +425,30 @@ de validar (HU-42 propone 60, 30, 15 y 7).
 ### Pago con Klap en local
 
 Klap exige URLs de webhook públicas en HTTPS y llama al webhook de validación
-mientras crea la orden, así que probar el pago de punta a punta requiere un
-túnel hacia `localhost:8000`. En producción no hace falta: el backend tiene su
-propio dominio público. Después de pagar, Klap redirige al navegador a
-`PORTAL_BASE_URL/pagos/{orden}/resultado`, así que esa variable debe apuntar a
-donde se sirve el portal.
+mientras crea la orden. Por eso `docker-compose.local.yml` levanta junto al
+resto el servicio `tunnel`: un túnel rápido de Cloudflare (`cloudflared`, sin
+cuenta) hacia Django. Su URL (`https://<palabras>.trycloudflare.com`) cambia en
+cada arranque, y el backend la lee de `http://tunnel:2000/quicktunnel` cada vez
+que crea una orden, así que no hay que copiarla a ninguna parte. En producción
+no hace falta: el backend tiene su propio dominio público.
 
-1. Abre un túnel, por ejemplo con `cloudflared tunnel --url http://localhost:8000`.
-2. En `.envs/.local/.django` define:
+1. En `.envs/.local/.django` define:
    - `PAYMENT_PROVIDER=klap`;
    - `KLAP_API_KEY` con la API key de prueba publicada en
      [Datos de prueba](https://developers.klap.cl/datos-de-prueba);
-   - `PAYMENT_WEBHOOK_BASE_URL` con la URL del túnel;
-   - `DJANGO_EXTRA_ALLOWED_HOSTS` con el host del túnel.
-3. Reinicia `django` y `celeryworker`.
-4. Paga desde el portal con las tarjetas de prueba de esa misma página.
+   - `PAYMENT_TUNNEL_METRICS_URL=http://tunnel:2000/quicktunnel`;
+   - `PORTAL_BASE_URL` con la dirección donde abres el portal (por ejemplo
+     `http://localhost:5173`), porque Klap vuelve ahí después de pagar.
+2. `docker compose -f docker-compose.local.yml up -d`.
+3. Paga desde el portal con las tarjetas de prueba de esa misma página.
 
-Con `PAYMENT_PROVIDER=simulated` (el valor por defecto) no se contacta a ningún
-proveedor; sirve para las pruebas automáticas.
+Mientras el proyecto corre, la API local es alcanzable desde internet en esa URL
+aleatoria. Usa solo datos ficticios en local.
+
+Si `PAYMENT_WEBHOOK_BASE_URL` tiene valor, se usa esa URL en vez del túnel (su
+host va en `DJANGO_EXTRA_ALLOWED_HOSTS`). Con `PAYMENT_PROVIDER=simulated` (el
+valor por defecto) no se contacta a ningún proveedor; sirve para las pruebas
+automáticas.
 
 ---
 

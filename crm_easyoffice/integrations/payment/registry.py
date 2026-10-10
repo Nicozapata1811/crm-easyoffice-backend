@@ -8,6 +8,7 @@ from .base import PaymentError
 from .base import PaymentProvider
 from .klap import KlapPaymentProvider
 from .simulated import SimulatedPaymentProvider
+from .tunnel import quick_tunnel_url
 
 KLAP = "klap"
 SIMULATED = "simulated"
@@ -26,6 +27,15 @@ def get_payment_provider() -> PaymentProvider:
         return SimulatedPaymentProvider()
     msg = f"Unknown PAYMENT_PROVIDER: {nombre!r}"
     raise PaymentError(msg)
+
+
+def webhook_base_url() -> str:
+    """Where the provider posts webhooks: the configured URL or the local tunnel's."""
+    if settings.PAYMENT_WEBHOOK_BASE_URL:
+        return settings.PAYMENT_WEBHOOK_BASE_URL
+    if settings.PAYMENT_TUNNEL_METRICS_URL:
+        return quick_tunnel_url(settings.PAYMENT_TUNNEL_METRICS_URL)
+    return ""
 
 
 def checkout_script_url() -> str | None:

@@ -11,6 +11,7 @@ from crm_easyoffice.integrations.payment.base import PaymentError
 from crm_easyoffice.integrations.payment.base import PaymentItem
 from crm_easyoffice.integrations.payment.base import PaymentRequest
 from crm_easyoffice.integrations.payment.registry import get_payment_provider
+from crm_easyoffice.integrations.payment.registry import webhook_base_url
 
 from .models import OrdenPago
 from .services import aplicar_resultado
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 MAX_REINTENTOS = 3
 
 
-def construir_solicitud(orden: OrdenPago) -> PaymentRequest:
+def construir_solicitud(orden: OrdenPago, webhooks: str) -> PaymentRequest:
     venta = orden.venta
     cliente = venta.cliente
     parte = cliente.parte
@@ -41,7 +42,6 @@ def construir_solicitud(orden: OrdenPago) -> PaymentRequest:
             last_name=parte.apellido_paterno,
         )
     url_resultado = f"{settings.PORTAL_BASE_URL}/pagos/{orden.pk}/resultado"
-    webhooks = settings.PAYMENT_WEBHOOK_BASE_URL
     return PaymentRequest(
         reference=str(orden.referencia),
         amount=orden.monto,
@@ -76,7 +76,8 @@ def crear_orden_en_proveedor(self, orden_id: int) -> None:
         return
 
     try:
-        resultado = get_payment_provider().create_payment(construir_solicitud(orden))
+        solicitud = construir_solicitud(orden, webhook_base_url())
+        resultado = get_payment_provider().create_payment(solicitud)
     except PaymentError as exc:
         if exc.transient and self.request.retries < MAX_REINTENTOS:
             raise self.retry(exc=exc) from exc
