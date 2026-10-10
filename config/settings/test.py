@@ -36,3 +36,5 @@ TEMPLATES[0]["OPTIONS"]["debug"] = True  # type: ignore[index]
 MEDIA_URL = "http://media.testserver/"
 # Your stuff...
 # ------------------------------------------------------------------------------
+CELERY_TASK_ALWAYS_EAGER = True
+PAYMENT_PROVIDER = "simulated"
