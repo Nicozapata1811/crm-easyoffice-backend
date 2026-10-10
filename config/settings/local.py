@@ -13,7 +13,12 @@ SECRET_KEY = env(
     default="78OA1D3plslqpVGhvawuiwPDsfmSql3m4CLbJR5YyHX1qesRtIf7Jp5JYi9s3yVd",
 )
 # https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts
-ALLOWED_HOSTS = ["localhost", "0.0.0.0", "127.0.0.1"]  # noqa: S104
+ALLOWED_HOSTS = [
+    "localhost",
+    "0.0.0.0",  # noqa: S104
+    "127.0.0.1",
+    *env.list("DJANGO_EXTRA_ALLOWED_HOSTS", default=[]),
+]
 # The Vite dev server proxies /api with Host rewritten to :8000, but the
 # browser still sends Origin :5173, which Django's CSRF origin check rejects.
 CSRF_TRUSTED_ORIGINS = ["http://localhost:5173"]

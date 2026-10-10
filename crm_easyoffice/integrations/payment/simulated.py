@@ -127,7 +127,13 @@ class SimulatedPaymentProvider(PaymentProvider):
         self._payments[external_id] = refunded
         return refunded
 
-    def parse_webhook(self, payload: dict, headers: dict[str, str]) -> PaymentResult:
+    def parse_webhook(
+        self,
+        payload: dict,
+        headers: dict[str, str],
+        *,
+        event: str | None = None,
+    ) -> PaymentResult:
         """Interpret a webhook shaped the way this simulator emits them.
 
         A real adapter verifies a signature header here. There is nothing to

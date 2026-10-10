@@ -375,3 +375,24 @@ SPECTACULAR_SETTINGS = {
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
+
+# Payments
+# ------------------------------------------------------------------------------
+# ASSUMPTION: pending validation with Easy Office. The provider is undecided;
+# "simulated" or "klap" (Klap Checkout Flex, sandbox by default).
+PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", default="simulated")
+KLAP_API_KEY = env("KLAP_API_KEY", default="")
+KLAP_API_BASE_URL = env(
+    "KLAP_API_BASE_URL",
+    default="https://api-pasarela-sandbox.mcdesaqa.cl",
+)
+KLAP_CHECKOUT_JS_URL = env(
+    "KLAP_CHECKOUT_JS_URL",
+    default="https://sandbox.mcdesaqa.cl/pagos/checkout-flex/v1/main.min.js",
+)
+KLAP_METHODS = env.list("KLAP_METHODS", default=["tarjetas"])
+KLAP_ORDER_EXPIRATION_MINUTES = env.int("KLAP_ORDER_EXPIRATION_MINUTES", default=30)
+# Public HTTPS origin Klap posts webhooks to; Klap refuses orders without one.
+# Locally, a tunnel to port 8000 (cloudflared, ngrok).
+PAYMENT_WEBHOOK_BASE_URL = env("PAYMENT_WEBHOOK_BASE_URL", default="")
+PORTAL_BASE_URL = env("PORTAL_BASE_URL", default="http://localhost:5173")

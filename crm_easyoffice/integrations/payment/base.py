@@ -33,8 +33,35 @@ class PaymentStatus(enum.StrEnum):
     PAID = "paid"
     REJECTED = "rejected"
     CANCELLED = "cancelled"
+    EXPIRED = "expired"
     REFUNDED = "refunded"
     FAILED = "failed"
+
+
+PAYMENT_DETAIL_KEYS = (
+    "method",
+    "brand",
+    "card_type",
+    "last_digits",
+    "installments",
+    "wallet",
+)
+
+
+@dataclass(frozen=True)
+class Payer:
+    email: str
+    rut: str = ""
+    first_name: str = ""
+    last_name: str = ""
+
+
+@dataclass(frozen=True)
+class PaymentItem:
+    code: str
+    name: str
+    unit_price: Decimal
+    quantity: int = 1
 
 
 @dataclass(frozen=True)
@@ -51,6 +78,10 @@ class PaymentRequest:
     currency: str = "CLP"
     description: str = ""
     return_url: str | None = None
+    cancel_url: str | None = None
+    notification_url: str | None = None
+    payer: Payer | None = None
+    items: tuple[PaymentItem, ...] = ()
     metadata: dict[str, str] = field(default_factory=dict)
 
 
@@ -59,7 +90,8 @@ class PaymentResult:
     """What the provider hands back.
 
     ``redirect_url`` carries the hosted payment page where one applies. This
-    project never handles card details itself.
+    project never handles card details itself; ``details`` only holds what the
+    provider reports about the payment, with the keys in ``PAYMENT_DETAIL_KEYS``.
     """
 
     external_id: str
@@ -70,11 +102,19 @@ class PaymentResult:
     redirect_url: str | None = None
     authorization_code: str | None = None
     paid_at: str | None = None
+    details: dict[str, str] = field(default_factory=dict)
     raw_response: dict = field(default_factory=dict)
 
 
 class PaymentError(Exception):
-    """Raised when a payment operation cannot be completed."""
+    """Raised when a payment operation cannot be completed.
+
+    ``transient`` marks failures worth retrying, such as a timeout or a 5xx.
+    """
+
+    def __init__(self, message: str = "", *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 class PaymentProvider(ABC):
@@ -105,8 +145,17 @@ class PaymentProvider(ABC):
         """Refund a payment in full, or partially when ``amount`` is given."""
 
     @abstractmethod
-    def parse_webhook(self, payload: dict, headers: dict[str, str]) -> PaymentResult:
+    def parse_webhook(
+        self,
+        payload: dict,
+        headers: dict[str, str],
+        *,
+        event: str | None = None,
+    ) -> PaymentResult:
         """Translate a provider webhook into a ``PaymentResult``.
+
+        ``event`` names the notification when the provider tells them apart by
+        URL rather than in the payload.
 
         Implementations are responsible for verifying authenticity. Callers are
         responsible for idempotency: the same event may arrive more than once

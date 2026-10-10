@@ -22,3 +22,16 @@ REDIS_URL=redis://redis:6379/0
 # Flower
 CELERY_FLOWER_USER=localdev
 CELERY_FLOWER_PASSWORD=localdev
+
+# Payments
+# ------------------------------------------------------------------------------
+# "simulated" or "klap". For Klap's sandbox, copy the test API key from
+# https://developers.klap.cl/datos-de-prueba into KLAP_API_KEY.
+PAYMENT_PROVIDER=simulated
+KLAP_API_KEY=
+# Public HTTPS URL of a tunnel to localhost:8000 (cloudflared, ngrok). Klap
+# refuses orders without webhook URLs. Add the tunnel host to
+# DJANGO_EXTRA_ALLOWED_HOSTS.
+PAYMENT_WEBHOOK_BASE_URL=
+DJANGO_EXTRA_ALLOWED_HOSTS=
+PORTAL_BASE_URL=http://localhost:5173
