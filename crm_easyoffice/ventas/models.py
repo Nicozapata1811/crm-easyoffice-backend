@@ -193,12 +193,13 @@ class Pago(TimestampedModel):
         choices=Tipo.choices,
         default=Tipo.VENTA,
     )
-    id_externo = models.CharField(
+    # Not unique: Klap's sandbox repeats the same mc_code across payments.
+    id_externo = models.CharField(  # noqa: DJ001 - not every provider sends one
         _("código de transacción"),
         max_length=100,
-        unique=True,
         null=True,
         blank=True,
+        db_index=True,
     )
     monto = models.DecimalField(_("monto (CLP)"), **MONTO)
     medio = models.CharField(_("medio de pago"), max_length=30, blank=True)

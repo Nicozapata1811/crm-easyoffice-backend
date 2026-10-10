@@ -22,7 +22,8 @@ def answering(monkeypatch, response: httpx.Response | Exception):
 
 def test_reads_the_tunnel_hostname(monkeypatch):
     answering(
-        monkeypatch, httpx.Response(200, json={"hostname": "abc.trycloudflare.com"}),
+        monkeypatch,
+        httpx.Response(200, json={"hostname": "abc.trycloudflare.com"}),
     )
 
     assert tunnel.quick_tunnel_url(METRICS) == "https://abc.trycloudflare.com"
@@ -57,7 +58,8 @@ def test_the_tunnel_is_used_when_no_url_is_configured(monkeypatch, settings):
     settings.PAYMENT_WEBHOOK_BASE_URL = ""
     settings.PAYMENT_TUNNEL_METRICS_URL = METRICS
     answering(
-        monkeypatch, httpx.Response(200, json={"hostname": "abc.trycloudflare.com"}),
+        monkeypatch,
+        httpx.Response(200, json={"hostname": "abc.trycloudflare.com"}),
     )
 
     assert webhook_base_url() == "https://abc.trycloudflare.com"

@@ -77,6 +77,7 @@ def test_creates_the_order_at_the_provider(provider, settings):
         solicitud.notification_url == "https://tunnel.invalid/api/pagos/webhooks/klap/"
     )
     assert solicitud.return_url.endswith(f"/pagos/{orden.pk}/resultado")
+    assert solicitud.cancel_url.endswith(f"/pagos/{orden.pk}/cancelado")
     assert solicitud.payer.email == orden.venta.cliente.persona.email
 
 

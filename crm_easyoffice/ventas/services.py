@@ -129,6 +129,12 @@ def aplicar_resultado(orden_id: int, resultado: PaymentResult, *, origen: str) -
             .get(pk=orden_id)
         )
         nuevo = ESTADO_POR_RESULTADO[resultado.status]
+        if nuevo == Estado.REEMBOLSADA and orden.estado in OrdenPago.ABIERTAS:
+            # Reversed before we recorded the payment: no money stayed.
+            orden.estado = Estado.RECHAZADA
+            orden.detalle_error = "El proveedor reversó el cobro."
+            orden.save(update_fields=["estado", "detalle_error", "updated_at"])
+            return True
         if nuevo == orden.estado or nuevo not in TRANSICIONES[orden.estado]:
             return False
 

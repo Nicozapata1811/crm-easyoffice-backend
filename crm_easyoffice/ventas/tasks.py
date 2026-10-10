@@ -41,13 +41,13 @@ def construir_solicitud(orden: OrdenPago, webhooks: str) -> PaymentRequest:
             first_name=parte.nombres,
             last_name=parte.apellido_paterno,
         )
-    url_resultado = f"{settings.PORTAL_BASE_URL}/pagos/{orden.pk}/resultado"
+    url_pago = f"{settings.PORTAL_BASE_URL}/pagos/{orden.pk}"
     return PaymentRequest(
         reference=str(orden.referencia),
         amount=orden.monto,
         description=f"Easy Office {venta.folio}",
-        return_url=url_resultado,
-        cancel_url=url_resultado,
+        return_url=f"{url_pago}/resultado",
+        cancel_url=f"{url_pago}/cancelado",
         notification_url=(
             f"{webhooks.rstrip('/')}/api/pagos/webhooks/{orden.proveedor}/"
             if webhooks

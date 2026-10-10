@@ -152,6 +152,30 @@ class TestAplicarResultado:
         orden.refresh_from_db()
         assert orden.estado == Estado.PAGADA
 
+    def test_a_payment_reuses_a_transaction_code_seen_before(self):
+        primera, segunda = OrdenPagoFactory.create_batch(2)
+
+        for orden in (primera, segunda):
+            aplicar_resultado(
+                orden.pk,
+                resultado(orden, PaymentStatus.PAID, authorization_code="MC-REPETIDO"),
+                origen="test",
+            )
+
+        assert Pago.objects.filter(id_externo="MC-REPETIDO").count() == 2  # noqa: PLR2004
+
+    def test_a_reversal_before_payment_closes_the_order(self):
+        orden = OrdenPagoFactory.create()
+
+        aplicar_resultado(
+            orden.pk, resultado(orden, PaymentStatus.REFUNDED), origen="test",
+        )
+
+        orden.refresh_from_db()
+        orden.venta.refresh_from_db()
+        assert orden.estado == Estado.RECHAZADA
+        assert orden.venta.estado == Venta.Estado.PENDIENTE_PAGO
+
     def test_a_different_amount_is_an_error(self):
         orden = OrdenPagoFactory.create()
 
