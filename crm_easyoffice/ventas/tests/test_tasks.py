@@ -54,7 +54,7 @@ def provider(monkeypatch):
     def usar(fake: FakeProvider) -> FakeProvider:
         monkeypatch.setattr(
             "crm_easyoffice.ventas.tasks.get_payment_provider",
-            lambda: fake,
+            lambda nombre: fake,
         )
         return fake
 
@@ -76,8 +76,10 @@ def test_creates_the_order_at_the_provider(provider, settings):
     assert (
         solicitud.notification_url == "https://tunnel.invalid/api/pagos/webhooks/klap/"
     )
-    assert solicitud.return_url.endswith(f"/pagos/{orden.pk}/resultado")
-    assert solicitud.cancel_url.endswith(f"/pagos/{orden.pk}/cancelado")
+    assert (
+        solicitud.return_url == f"https://tunnel.invalid/api/pagos/retorno/{orden.pk}/"
+    )
+    assert solicitud.cancel_url == f"{solicitud.return_url}?cancelado=1"
     assert solicitud.payer.email == orden.venta.cliente.persona.email
 
 

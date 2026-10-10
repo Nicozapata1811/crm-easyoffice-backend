@@ -4,7 +4,9 @@ from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from crm_easyoffice.integrations.payment.registry import MEDIOS
 from crm_easyoffice.integrations.payment.registry import checkout_script_url
+from crm_easyoffice.integrations.payment.registry import proveedores_habilitados
 from crm_easyoffice.ventas.models import ItemVenta
 from crm_easyoffice.ventas.models import OrdenPago
 from crm_easyoffice.ventas.models import Pago
@@ -56,8 +58,44 @@ class PagoSerializer(serializers.ModelSerializer[Pago]):
         read_only_fields = fields
 
 
+class CheckoutSerializer(serializers.Serializer):
+    tipo = serializers.ChoiceField(choices=["modal", "redireccion"])
+    script_url = serializers.URLField(allow_null=True)
+
+
+class MedioPagoSerializer(serializers.Serializer):
+    codigo = serializers.CharField()
+    nombre = serializers.CharField()
+    descripcion = serializers.CharField()
+    checkout = serializers.SerializerMethodField()
+
+    @extend_schema_field(CheckoutSerializer)
+    def get_checkout(self, medio) -> dict:
+        return {"tipo": medio.checkout, "script_url": checkout_script_url(medio.codigo)}
+
+
+class PagarSerializer(serializers.Serializer):
+    proveedor = serializers.CharField(required=False)
+
+    def validate_proveedor(self, proveedor: str) -> str:
+        if proveedor not in proveedores_habilitados():
+            raise serializers.ValidationError(
+                _("This payment method is not available."),
+            )
+        return proveedor
+
+    def validate(self, attrs: dict) -> dict:
+        habilitados = proveedores_habilitados()
+        if "proveedor" not in attrs:
+            if not habilitados:
+                raise serializers.ValidationError(_("No payment method is enabled."))
+            attrs["proveedor"] = habilitados[0]
+        return attrs
+
+
 class OrdenPagoSerializer(serializers.ModelSerializer[OrdenPago]):
     venta = serializers.PrimaryKeyRelatedField(read_only=True)
+    checkout = serializers.SerializerMethodField()
     checkout_script_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -69,7 +107,9 @@ class OrdenPagoSerializer(serializers.ModelSerializer[OrdenPago]):
             "id_externo",
             "monto",
             "estado",
+            "checkout",
             "checkout_script_url",
+            "redirect_url",
             "created_at",
             "updated_at",
         ]
@@ -77,7 +117,12 @@ class OrdenPagoSerializer(serializers.ModelSerializer[OrdenPago]):
 
     @extend_schema_field(serializers.URLField(allow_null=True))
     def get_checkout_script_url(self, orden: OrdenPago) -> str | None:
-        return checkout_script_url()
+        return checkout_script_url(orden.proveedor)
+
+    @extend_schema_field(serializers.ChoiceField(choices=["modal", "redireccion"]))
+    def get_checkout(self, orden: OrdenPago) -> str:
+        medio = MEDIOS.get(orden.proveedor)
+        return medio.checkout if medio else "redireccion"
 
 
 class OrdenPagoDetalleSerializer(OrdenPagoSerializer):

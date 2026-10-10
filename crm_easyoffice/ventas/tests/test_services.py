@@ -14,6 +14,7 @@ from crm_easyoffice.integrations.payment.base import PaymentStatus
 from crm_easyoffice.ventas.models import OrdenPago
 from crm_easyoffice.ventas.models import Pago
 from crm_easyoffice.ventas.models import Venta
+from crm_easyoffice.ventas.services import ProveedorNoHabilitadoError
 from crm_easyoffice.ventas.services import VentaNoPagableError
 from crm_easyoffice.ventas.services import aplicar_resultado
 from crm_easyoffice.ventas.services import crear_venta
@@ -34,6 +35,11 @@ def resultado(orden: OrdenPago, status: PaymentStatus, **extra) -> PaymentResult
         status=status,
         **{"amount": orden.monto, **extra},
     )
+
+
+@pytest.fixture(autouse=True)
+def _proveedores(settings):
+    settings.PAYMENT_PROVIDERS = ["klap", "flow"]
 
 
 @pytest.fixture
@@ -69,7 +75,7 @@ class TestIniciarPago:
         venta = VentaFactory.create()
 
         with django_capture_on_commit_callbacks(execute=True):
-            orden = iniciar_pago(venta)
+            orden = iniciar_pago(venta, "klap")
 
         assert orden.estado == Estado.CREANDO
         assert orden.monto == venta.total
@@ -78,7 +84,7 @@ class TestIniciarPago:
     def test_reuses_the_open_attempt(self, sin_tareas):
         abierta = OrdenPagoFactory.create()
 
-        assert iniciar_pago(abierta.venta) == abierta
+        assert iniciar_pago(abierta.venta, "klap") == abierta
 
     def test_expires_a_stale_attempt_and_starts_another(self, sin_tareas):
         vieja = OrdenPagoFactory.create()
@@ -86,15 +92,28 @@ class TestIniciarPago:
             created_at=timezone.now() - timedelta(hours=2),
         )
 
-        nueva = iniciar_pago(vieja.venta)
+        nueva = iniciar_pago(vieja.venta, "klap")
 
         vieja.refresh_from_db()
         assert nueva != vieja
         assert vieja.estado == Estado.EXPIRADA
 
+    def test_switching_provider_cancels_the_other_attempt(self, sin_tareas):
+        klap = OrdenPagoFactory.create(proveedor="klap")
+
+        flow = iniciar_pago(klap.venta, "flow")
+
+        klap.refresh_from_db()
+        assert flow.proveedor == "flow"
+        assert klap.estado == Estado.CANCELADA
+
+    def test_a_disabled_provider_is_refused(self, sin_tareas):
+        with pytest.raises(ProveedorNoHabilitadoError):
+            iniciar_pago(VentaFactory.create(), "simulated")
+
     def test_a_paid_sale_cannot_be_paid_again(self, sin_tareas):
         with pytest.raises(VentaNoPagableError):
-            iniciar_pago(VentaFactory.create(estado=Venta.Estado.PAGADA))
+            iniciar_pago(VentaFactory.create(estado=Venta.Estado.PAGADA), "klap")
 
 
 class TestAplicarResultado:
@@ -168,7 +187,9 @@ class TestAplicarResultado:
         orden = OrdenPagoFactory.create()
 
         aplicar_resultado(
-            orden.pk, resultado(orden, PaymentStatus.REFUNDED), origen="test",
+            orden.pk,
+            resultado(orden, PaymentStatus.REFUNDED),
+            origen="test",
         )
 
         orden.refresh_from_db()

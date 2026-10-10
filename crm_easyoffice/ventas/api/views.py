@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import uuid
 from datetime import timedelta
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -11,7 +11,11 @@ from django.db import IntegrityError
 from django.db import transaction
 from django.db.models import Q
 from django.http import Http404
+from django.http import HttpResponseRedirect
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views import View
+from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import OpenApiParameter
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -35,18 +39,25 @@ from crm_easyoffice.clientes.models import Cliente
 from crm_easyoffice.integrations.payment.base import PaymentError
 from crm_easyoffice.integrations.payment.base import PaymentStatus
 from crm_easyoffice.integrations.payment.registry import get_payment_provider
+from crm_easyoffice.integrations.payment.registry import medios_habilitados
+from crm_easyoffice.integrations.payment.registry import proveedores_habilitados
 from crm_easyoffice.ventas.models import EventoPago
 from crm_easyoffice.ventas.models import OrdenPago
 from crm_easyoffice.ventas.models import Servicio
 from crm_easyoffice.ventas.models import Venta
+from crm_easyoffice.ventas.services import ProveedorNoHabilitadoError
 from crm_easyoffice.ventas.services import VentaNoPagableError
 from crm_easyoffice.ventas.services import aplicar_resultado
 from crm_easyoffice.ventas.services import crear_venta
 from crm_easyoffice.ventas.services import iniciar_pago
+from crm_easyoffice.ventas.services import orden_de_resultado
+from crm_easyoffice.ventas.tasks import procesar_notificacion
 from crm_easyoffice.ventas.tasks import sincronizar_orden
 
 from .serializers import CrearVentaSerializer
+from .serializers import MedioPagoSerializer
 from .serializers import OrdenPagoSerializer
+from .serializers import PagarSerializer
 from .serializers import ServicioSerializer
 from .serializers import VentaBackofficeSerializer
 from .serializers import VentaSerializer
@@ -102,20 +113,36 @@ class VentaPortalViewSet(
         )
         return Response(VentaSerializer(venta).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=None, responses={202: OrdenPagoSerializer})
+    @extend_schema(request=PagarSerializer, responses={202: OrdenPagoSerializer})
     @action(detail=True, methods=["post"])
     def pagar(self, request: Request, pk: str | None = None) -> Response:
+        venta = self.get_object()
+        serializer = PagarSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
-            orden = iniciar_pago(self.get_object())
+            orden = iniciar_pago(venta, serializer.validated_data["proveedor"])
         except VentaNoPagableError:
             return Response(
                 {"detail": "Esta venta no está pendiente de pago."},
                 status=status.HTTP_409_CONFLICT,
             )
+        except ProveedorNoHabilitadoError:
+            return Response(
+                {"proveedor": ["Este medio de pago no está disponible."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(
             OrdenPagoSerializer(orden).data,
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class MedioPagoPortalView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(responses=MedioPagoSerializer(many=True))
+    def get(self, request: Request) -> Response:
+        return Response(MedioPagoSerializer(medios_habilitados(), many=True).data)
 
 
 class OrdenPortalView(RetrieveAPIView):
@@ -142,10 +169,11 @@ class OrdenPortalView(RetrieveAPIView):
 
 
 class PagoWebhookView(APIView):
-    """Notifications from the payment provider.
+    """Notifications from the payment providers.
 
-    The provider reverses the payment unless this answers 2xx within ten
-    seconds, so it makes no outbound calls.
+    Klap reverses the payment unless this answers 2xx within ten seconds, so
+    this makes no outbound calls: a provider that must be asked about its
+    notification (Flow) is handled by ``procesar_notificacion`` in Celery.
     """
 
     authentication_classes = []
@@ -153,7 +181,7 @@ class PagoWebhookView(APIView):
 
     @extend_schema(request=None, responses={200: None})
     def post(self, request: Request, proveedor: str, evento: str) -> Response:
-        if proveedor != settings.PAYMENT_PROVIDER:
+        if proveedor not in proveedores_habilitados():
             raise Http404
 
         clave = hashlib.sha256(
@@ -163,16 +191,21 @@ class PagoWebhookView(APIView):
         if anterior is not None:
             return self._respuesta(anterior.resultado)
 
-        payload = request.data if isinstance(request.data, dict) else {}
+        datos = request.data
+        payload = datos.dict() if hasattr(datos, "dict") else datos
         recibido = {
             "clave_dedup": clave,
             "proveedor": proveedor,
             "evento": evento,
-            "payload": payload,
+            "payload": payload if isinstance(payload, dict) else {},
         }
+        cliente = get_payment_provider(proveedor)
+        if cliente.webhook_needs_lookup:
+            transaction.on_commit(lambda: procesar_notificacion.delay(recibido))
+            return Response(OK)
         try:
-            resultado = get_payment_provider().parse_webhook(
-                payload,
+            resultado = cliente.parse_webhook(
+                recibido["payload"],
                 dict(request.headers),
                 event=evento,
             )
@@ -180,7 +213,7 @@ class PagoWebhookView(APIView):
             logger.warning("Rejected %s webhook %s: %s", proveedor, evento, exc)
             return self._registrar(recibido, None, EventoPago.Resultado.FIRMA_INVALIDA)
 
-        orden = self._orden(resultado.reference, resultado.external_id)
+        orden = orden_de_resultado(resultado)
         if orden is None:
             return self._registrar(recibido, None, EventoPago.Resultado.RECHAZADO)
 
@@ -213,16 +246,6 @@ class PagoWebhookView(APIView):
             return Response(status=status.HTTP_400_BAD_REQUEST)
         return Response(OK)
 
-    @staticmethod
-    def _orden(referencia: str, id_externo: str) -> OrdenPago | None:
-        try:
-            orden = OrdenPago.objects.get(referencia=uuid.UUID(referencia))
-        except ValueError, OrdenPago.DoesNotExist:
-            return None
-        if orden.id_externo and id_externo and orden.id_externo != id_externo:
-            return None
-        return orden
-
     @classmethod
     def _registrar(
         cls,
@@ -236,6 +259,30 @@ class PagoWebhookView(APIView):
         except IntegrityError:
             logger.info("Webhook %s already recorded.", recibido["clave_dedup"])
         return cls._respuesta(resultado)
+
+
+class PagoRetornoView(View):
+    """Where a provider sends the browser back, by GET or by POST (Flow).
+
+    It changes nothing: it asks for a status check and redirects the browser
+    to the portal page for the attempt.
+    """
+
+    @method_decorator(csrf_exempt)
+    def dispatch(self, request, *args, **kwargs):
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, orden_id: int) -> HttpResponseRedirect:
+        if OrdenPago.objects.filter(pk=orden_id).exists():
+            transaction.on_commit(lambda: sincronizar_orden.delay(orden_id))
+        pagina = "cancelado" if request.GET.get("cancelado") else "resultado"
+        respuesta = HttpResponseRedirect(
+            f"{settings.PORTAL_BASE_URL}/pagos/{orden_id}/{pagina}",
+        )
+        respuesta.status_code = HTTPStatus.SEE_OTHER
+        return respuesta
+
+    post = get
 
 
 @extend_schema(

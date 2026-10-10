@@ -21,7 +21,7 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture(autouse=True)
 def _klap(settings):
-    settings.PAYMENT_PROVIDER = "klap"
+    settings.PAYMENT_PROVIDERS = ["klap"]
     settings.KLAP_API_KEY = API_KEY
     settings.KLAP_API_BASE_URL = "https://klap.invalid"
 
@@ -144,6 +144,6 @@ def test_an_unknown_order_is_refused():
 
 
 def test_another_provider_is_not_found(orden, settings):
-    settings.PAYMENT_PROVIDER = "simulated"
+    settings.PAYMENT_PROVIDERS = ["simulated"]
 
     assert enviar(orden, "confirmacion").status_code == HTTPStatus.NOT_FOUND
