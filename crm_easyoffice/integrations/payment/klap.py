@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 from decimal import Decimal
-from decimal import InvalidOperation
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 from typing import Any
@@ -23,6 +22,8 @@ from .base import PaymentProvider
 from .base import PaymentRequest
 from .base import PaymentResult
 from .base import PaymentStatus
+from .montos import a_decimal
+from .montos import a_entero
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -96,15 +97,15 @@ class KlapPaymentProvider(PaymentProvider):
         body: dict[str, Any] = {
             "reference_id": request.reference,
             "description": request.description or request.reference,
-            "amount": {"currency": request.currency, "total": _entero(request.amount)},
+            "amount": {"currency": request.currency, "total": a_entero(request.amount)},
             "methods": self.methods,
             "items": [
                 {
                     "code": item.code,
                     "name": item.name,
-                    "unit_price": _entero(item.unit_price),
+                    "unit_price": a_entero(item.unit_price),
                     "quantity": item.quantity,
-                    "price": _entero(item.unit_price * item.quantity),
+                    "price": a_entero(item.unit_price * item.quantity),
                 }
                 for item in request.items
             ],
@@ -147,13 +148,13 @@ class KlapPaymentProvider(PaymentProvider):
         datos = self._enviar(
             "POST",
             f"{ORDERS_PATH}/{external_id}/refund",
-            json={"amount": _entero(amount or Decimal(0))},
+            json={"amount": a_entero(amount or Decimal(0))},
         )
         return PaymentResult(
             external_id=external_id,
             reference=str(datos.get("reference_id", "")),
             status=PaymentStatus.REFUNDED,
-            amount=_decimal(datos.get("amount")),
+            amount=a_decimal(datos.get("amount")),
             raw_response=datos,
         )
 
@@ -177,7 +178,7 @@ class KlapPaymentProvider(PaymentProvider):
                 external_id="",
                 reference=reference_id,
                 status=PaymentStatus.PENDING,
-                amount=_decimal(payload.get("amount")),
+                amount=a_decimal(payload.get("amount")),
                 raw_response=dict(payload),
             )
         recibida = next(
@@ -193,7 +194,7 @@ class KlapPaymentProvider(PaymentProvider):
             external_id=order_id,
             reference=reference_id,
             status=EVENTOS_WEBHOOK[event],
-            amount=_decimal(payload.get("amount")),
+            amount=a_decimal(payload.get("amount")),
             authorization_code=payload.get("mc_code") or None,
             details={
                 clave: str(payload[clave_klap])
@@ -231,24 +232,8 @@ class KlapPaymentProvider(PaymentProvider):
             external_id=str(datos.get("order_id", "")),
             reference=str(datos.get("reference_id", "")),
             status=ESTADOS_ORDEN[estado],
-            amount=_decimal(datos.get("amount")),
+            amount=a_decimal(datos.get("amount")),
             currency=(datos.get("amount") or {}).get("currency", "CLP"),
             redirect_url=datos.get("redirect_url"),
             raw_response=datos,
         )
-
-
-def _entero(monto: Decimal) -> int:
-    return int(monto.to_integral_value())
-
-
-def _decimal(valor: Any) -> Decimal | None:
-    if isinstance(valor, dict):
-        valor = valor.get("total")
-    if valor in (None, ""):
-        return None
-    try:
-        return Decimal(str(valor))
-    except InvalidOperation as exc:
-        msg = f"Klap sent an amount that is not a number: {valor!r}"
-        raise PaymentError(msg) from exc

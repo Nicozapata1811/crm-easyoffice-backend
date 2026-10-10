@@ -25,10 +25,14 @@ CELERY_FLOWER_PASSWORD=localdev
 
 # Payments
 # ------------------------------------------------------------------------------
-# "simulated" or "klap". For Klap's sandbox, copy the test API key from
-# https://developers.klap.cl/datos-de-prueba into KLAP_API_KEY.
-PAYMENT_PROVIDER=simulated
+# Payment methods the client can choose from, in order: klap, flow,
+# simulated. For Klap's sandbox, copy the test API key from
+# https://developers.klap.cl/datos-de-prueba. For Flow's, create an account
+# at https://sandbox.flow.cl and copy apiKey and secretKey from "Mis datos".
+PAYMENT_PROVIDERS=simulated
 KLAP_API_KEY=
+FLOW_API_KEY=
+FLOW_SECRET_KEY=
 # Klap refuses orders without public HTTPS webhook URLs. Locally the "tunnel"
 # service provides one and the backend reads it from the line below.
 # PAYMENT_WEBHOOK_BASE_URL, when set, takes precedence (add its host to

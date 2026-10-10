@@ -376,6 +376,7 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": {
         "TipoClienteEnum": "crm_easyoffice.clientes.models.TipoCliente",
         "TipoSesionEnum": ["cliente", "staff"],
+        "TipoCheckoutEnum": ["modal", "redireccion"],
         "TipoPagoEnum": "crm_easyoffice.ventas.models.Pago.Tipo",
         "EstadoVentaEnum": "crm_easyoffice.ventas.models.Venta.Estado",
         "EstadoOrdenPagoEnum": "crm_easyoffice.ventas.models.OrdenPago.Estado",
@@ -386,9 +387,11 @@ SPECTACULAR_SETTINGS = {
 
 # Payments
 # ------------------------------------------------------------------------------
-# ASSUMPTION: pending validation with Easy Office. The provider is undecided;
-# "simulated" or "klap" (Klap Checkout Flex, sandbox by default).
+# ASSUMPTION: pending validation with Easy Office. The provider is undecided.
+# PAYMENT_PROVIDERS lists what the client may choose from, in display order:
+# "klap", "flow" or "simulated". PAYMENT_PROVIDER is the single-provider form.
 PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", default="simulated")
+PAYMENT_PROVIDERS = env.list("PAYMENT_PROVIDERS", default=[PAYMENT_PROVIDER])
 KLAP_API_KEY = env("KLAP_API_KEY", default="")
 KLAP_API_BASE_URL = env(
     "KLAP_API_BASE_URL",
@@ -399,7 +402,15 @@ KLAP_CHECKOUT_JS_URL = env(
     default="https://sandbox.mcdesaqa.cl/pagos/checkout-flex/v1/main.min.js",
 )
 KLAP_METHODS = env.list("KLAP_METHODS", default=["tarjetas"])
-KLAP_ORDER_EXPIRATION_MINUTES = env.int("KLAP_ORDER_EXPIRATION_MINUTES", default=30)
+PAYMENT_ORDER_EXPIRATION_MINUTES = env.int(
+    "PAYMENT_ORDER_EXPIRATION_MINUTES",
+    default=env.int("KLAP_ORDER_EXPIRATION_MINUTES", default=30),
+)
+FLOW_API_KEY = env("FLOW_API_KEY", default="")
+FLOW_SECRET_KEY = env("FLOW_SECRET_KEY", default="")
+FLOW_API_BASE_URL = env("FLOW_API_BASE_URL", default="https://sandbox.flow.cl/api")
+# 9 shows every method enabled in the Flow account.
+FLOW_PAYMENT_METHOD = env.int("FLOW_PAYMENT_METHOD", default=9)
 # Public HTTPS origin Klap posts webhooks to; Klap refuses orders without one.
 # Locally, a tunnel to port 8000 (cloudflared, ngrok).
 PAYMENT_WEBHOOK_BASE_URL = env("PAYMENT_WEBHOOK_BASE_URL", default="")

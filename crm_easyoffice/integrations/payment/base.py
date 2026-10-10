@@ -17,6 +17,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from dataclasses import field
 from typing import TYPE_CHECKING
+from typing import ClassVar
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -122,7 +123,12 @@ class PaymentProvider(ABC):
 
     Implementations must not leak provider-specific types across this
     boundary, and no provider SDK is imported outside this app.
+
+    ``webhook_needs_lookup`` is true when ``parse_webhook`` calls the provider
+    to verify a notification, so callers run it outside the request cycle.
     """
+
+    webhook_needs_lookup: ClassVar[bool] = False
 
     @abstractmethod
     def create_payment(self, request: PaymentRequest) -> PaymentResult:
