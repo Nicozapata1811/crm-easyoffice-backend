@@ -186,16 +186,20 @@ class TestWebhook:
         with pytest.raises(PaymentError):
             self.provider().parse_webhook(self.payload, cabeceras, event="confirmacion")
 
-    def test_amount_may_come_as_an_object(self):
-        payload = {**self.payload, "amount": {"currency": "CLP", "total": 18400}}
-        firma = firma_webhook("ref-1", "KLAP-1", API_KEY)
+    def test_validation_is_read_without_a_signature(self):
+        payload = {
+            "reference_id": "ref-1",
+            "amount": {"currency": "CLP", "total": 18400},
+        }
 
         resultado = self.provider().parse_webhook(
             payload,
-            {"Apikey": firma},
+            {"Apikey": "unverifiable"},
             event="validacion",
         )
 
+        assert resultado.status is PaymentStatus.PENDING
+        assert resultado.reference == "ref-1"
         assert resultado.amount == Decimal(18400)
 
     def test_unknown_event_is_rejected(self):

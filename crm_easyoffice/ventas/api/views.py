@@ -159,8 +159,9 @@ class PagoWebhookView(APIView):
         clave = hashlib.sha256(
             f"{proveedor}:{evento}:".encode() + request.body,
         ).hexdigest()
-        if EventoPago.objects.filter(clave_dedup=clave).exists():
-            return Response(OK)
+        anterior = EventoPago.objects.filter(clave_dedup=clave).first()
+        if anterior is not None:
+            return self._respuesta(anterior.resultado)
 
         payload = request.data if isinstance(request.data, dict) else {}
         recibido = {
@@ -177,26 +178,39 @@ class PagoWebhookView(APIView):
             )
         except PaymentError as exc:
             logger.warning("Rejected %s webhook %s: %s", proveedor, evento, exc)
-            self._registrar(recibido, None, EventoPago.Resultado.FIRMA_INVALIDA)
-            return Response(status=status.HTTP_401_UNAUTHORIZED)
+            return self._registrar(recibido, None, EventoPago.Resultado.FIRMA_INVALIDA)
 
         orden = self._orden(resultado.reference, resultado.external_id)
         if orden is None:
-            self._registrar(recibido, None, EventoPago.Resultado.IGNORADO)
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+            return self._registrar(recibido, None, EventoPago.Resultado.RECHAZADO)
 
         if resultado.status == PaymentStatus.PENDING:
-            self._registrar(recibido, orden, EventoPago.Resultado.PROCESADO)
-            if resultado.amount in (None, orden.monto):
-                return Response(OK)
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+            valida = orden.estado in OrdenPago.ABIERTAS and resultado.amount in (
+                None,
+                orden.monto,
+            )
+            return self._registrar(
+                recibido,
+                orden,
+                EventoPago.Resultado.PROCESADO
+                if valida
+                else EventoPago.Resultado.RECHAZADO,
+            )
 
         cambio = aplicar_resultado(orden.pk, resultado, origen=f"webhook:{evento}")
-        self._registrar(
+        return self._registrar(
             recibido,
             orden,
             EventoPago.Resultado.PROCESADO if cambio else EventoPago.Resultado.IGNORADO,
         )
+
+    @staticmethod
+    def _respuesta(resultado: str) -> Response:
+        """The answer for an event, the same every time it is delivered."""
+        if resultado == EventoPago.Resultado.FIRMA_INVALIDA:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+        if resultado == EventoPago.Resultado.RECHAZADO:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
         return Response(OK)
 
     @staticmethod
@@ -209,13 +223,19 @@ class PagoWebhookView(APIView):
             return None
         return orden
 
-    @staticmethod
-    def _registrar(recibido: dict, orden: OrdenPago | None, resultado: str) -> None:
+    @classmethod
+    def _registrar(
+        cls,
+        recibido: dict,
+        orden: OrdenPago | None,
+        resultado: str,
+    ) -> Response:
         try:
             with transaction.atomic():
                 EventoPago.objects.create(**recibido, orden=orden, resultado=resultado)
         except IntegrityError:
             logger.info("Webhook %s already recorded.", recibido["clave_dedup"])
+        return cls._respuesta(resultado)
 
 
 @extend_schema(

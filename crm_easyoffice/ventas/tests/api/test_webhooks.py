@@ -94,14 +94,47 @@ def test_a_rejection_after_payment_is_ignored(orden):
     )
 
 
-@pytest.mark.parametrize(
-    ("monto", "esperado"),
-    [(None, HTTPStatus.OK), ("1", HTTPStatus.BAD_REQUEST)],
-)
-def test_validation_checks_the_amount(orden, monto, esperado):
-    extra = {"amount": monto} if monto else {}
+def validar(orden: OrdenPago, **extra):
+    """What Klap sends while creating the order: the request body, unsigned."""
+    payload = {
+        "reference_id": str(orden.referencia),
+        "amount": {"currency": "CLP", "total": int(orden.monto)},
+        **extra,
+    }
+    return APIClient().post(
+        reverse("pagos:webhook", args=["klap", "validacion"]),
+        payload,
+        format="json",
+        headers={"Apikey": "signed-with-an-order-id-we-do-not-have-yet"},
+    )
 
-    assert enviar(orden, "validacion", **extra).status_code == esperado
+
+def test_validation_accepts_an_order_being_created():
+    orden = OrdenPagoFactory.create(estado=OrdenPago.Estado.CREANDO, id_externo=None)
+
+    assert validar(orden).status_code == HTTPStatus.OK
+
+
+@pytest.mark.parametrize(
+    ("estado", "extra"),
+    [
+        (OrdenPago.Estado.CREANDO, {"amount": {"currency": "CLP", "total": 1}}),
+        (OrdenPago.Estado.ERROR, {}),
+    ],
+)
+def test_validation_refuses_a_wrong_amount_or_a_closed_order(estado, extra):
+    orden = OrdenPagoFactory.create(estado=estado, id_externo=None)
+
+    assert validar(orden, **extra).status_code == HTTPStatus.BAD_REQUEST
+
+
+def test_a_repeated_refusal_gets_the_same_answer(orden):
+    enviar(orden, "confirmacion", firma="forged")
+
+    assert enviar(orden, "confirmacion", firma="forged").status_code == (
+        HTTPStatus.UNAUTHORIZED
+    )
+    assert EventoPago.objects.count() == 1
 
 
 def test_an_unknown_order_is_refused():

@@ -367,12 +367,17 @@ sigue `pendiente` más de 10 segundos, la misma consulta pide su estado a Klap
 
 Webhooks: `POST /api/pagos/webhooks/klap/{validacion|confirmacion|rechazo}/`,
 sin sesión.
-- Se verifica la cabecera `Apikey` (`sha256(reference_id + order_id + api key)`);
-  si no coincide, `401`.
-- Un webhook repetido responde `200` sin volver a procesarse.
+- En confirmación y rechazo se verifica la cabecera `Apikey`
+  (`sha256(reference_id + order_id + api key)`); si no coincide, `401`.
+- La validación llega mientras Klap crea la orden, firmada con un `order_id`
+  que aún no conocemos, así que no se puede verificar. No cambia nada: responde
+  `200` solo si la referencia es de una orden abierta y el monto coincide, y
+  `400` en otro caso (Klap no crea la orden).
+- Un webhook repetido no se vuelve a procesar y recibe la misma respuesta que
+  la primera vez.
 - Una orden ya pagada no retrocede por un rechazo tardío.
-- Si el monto informado no coincide con el de la orden, la validación responde
-  `400` (Klap reversa el cobro) y la confirmación deja la orden en `error`.
+- Si el monto de una confirmación no coincide con el de la orden, la orden
+  queda en `error` en vez de marcar la venta como pagada.
 
 Backoffice: `GET /api/ventas/?buscar=&estado=&page=` y `GET /api/ventas/{id}/`,
 con `ventas.view_venta` (Administrador y Ejecutivo). El detalle trae ítems,
@@ -421,7 +426,10 @@ de validar (HU-42 propone 60, 30, 15 y 7).
 
 Klap exige URLs de webhook públicas en HTTPS y llama al webhook de validación
 mientras crea la orden, así que probar el pago de punta a punta requiere un
-túnel hacia `localhost:8000`.
+túnel hacia `localhost:8000`. En producción no hace falta: el backend tiene su
+propio dominio público. Después de pagar, Klap redirige al navegador a
+`PORTAL_BASE_URL/pagos/{orden}/resultado`, así que esa variable debe apuntar a
+donde se sirve el portal.
 
 1. Abre un túnel, por ejemplo con `cloudflared tunnel --url http://localhost:8000`.
 2. En `.envs/.local/.django` define:

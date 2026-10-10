@@ -169,6 +169,17 @@ class KlapPaymentProvider(PaymentProvider):
             raise PaymentError(msg)
         reference_id = str(payload.get("reference_id", ""))
         order_id = str(payload.get("order_id", ""))
+        if event == "validacion":
+            # Klap signs this call with the order_id but does not send it (the
+            # order is not created yet), so it cannot be verified. It changes
+            # nothing: the caller only checks the reference and the amount.
+            return PaymentResult(
+                external_id="",
+                reference=reference_id,
+                status=PaymentStatus.PENDING,
+                amount=_decimal(payload.get("amount")),
+                raw_response=dict(payload),
+            )
         recibida = next(
             (valor for clave, valor in headers.items() if clave.lower() == "apikey"),
             "",

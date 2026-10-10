@@ -232,6 +232,7 @@ class EventoPago(models.Model):
     class Resultado(models.TextChoices):
         PROCESADO = "procesado", _("procesado")
         IGNORADO = "ignorado", _("ignorado")
+        RECHAZADO = "rechazado", _("rechazado")
         FIRMA_INVALIDA = "firma_invalida", _("firma inválida")
 
     orden = models.ForeignKey(
