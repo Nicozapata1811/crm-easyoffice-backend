@@ -108,7 +108,8 @@ La documentación de la API requiere una sesión de administrador.
 ### Variables de entorno
 
 `DJANGO_SESSION_INACTIVITY_SECONDS` fija los segundos de inactividad tras los
-que expira la sesión.
+que expira la sesión. Las variables de pago se describen en
+[Pago con Klap en local](#pago-con-klap-en-local).
 
 Las credenciales viven en `.envs/`, que **no** se versiona. Los archivos se
 generan al crear el proyecto y no deben commitearse nunca: este repositorio es
@@ -167,6 +168,7 @@ documentos/     plantillas versionadas, generación de documentos, hashing
 integrations/   SignatureProvider, PaymentProvider e implementaciones
 migracion/      pipeline de importación Excel → PostgreSQL
 panel/          indicadores del panel operativo y su exportación a Excel
+ventas/         servicios con precio, ventas, órdenes de pago, pagos y webhooks
 ```
 
 Las aplicaciones se comunican mediante funciones de servicio, no importando los
@@ -184,9 +186,11 @@ desordenados.
 
 **Integraciones externas.** Firma electrónica avanzada y pago viven detrás de
 interfaces propias en `integrations/`. Las credenciales del proveedor de firma
-aún no están disponibles y el proveedor de pago no ha sido definido, por lo que
-existen implementaciones simuladas que satisfacen el mismo contrato. Ningún SDK
-de proveedor se importa fuera de esa aplicación.
+aún no están disponibles, por lo que existe una implementación simulada que
+satisface el mismo contrato. Para el pago hay una implementación simulada y un
+adaptador de Klap Checkout Flex, elegidos con `PAYMENT_PROVIDER`; Easy Office
+aún no define el proveedor, así que Klap es una suposición pendiente de validar.
+Ningún SDK ni cliente HTTP de proveedor se usa fuera de esa aplicación.
 
 ---
 
@@ -337,6 +341,47 @@ puede cambiar.
 Los campos definitivos de la ficha (MD-01) siguen pendientes. Mientras tanto,
 `seed_demo_clientes` carga datos ficticios.
 
+### Ventas y pago en línea (HU-38, HU-39, HU-40, HU-57)
+
+Una **venta** guarda lo que el cliente compra, con el precio de lista copiado al
+momento de la compra (RN-08). Cada intento de cobro es una **orden de pago**
+(RN-28); el proveedor confirma la transacción como un **pago**, y cada webhook
+recibido queda en un registro de **eventos** que solo admite inserciones.
+
+Portal (solo cuentas de cliente, y solo sus propios registros; `404` para los
+de otro cliente):
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /api/portal/servicios/` | Servicios activos (público), con `precio_confirmado` |
+| `POST /api/portal/ventas/` | Cuerpo `{"items": [{"servicio": "<código>", "cantidad": 1}]}`. `201` con la venta |
+| `GET /api/portal/ventas/`, `GET /api/portal/ventas/{id}/` | Ventas del cliente, con su última orden |
+| `POST /api/portal/ventas/{id}/pagar/` | `202` con la orden; `409` si la venta no está pendiente de pago |
+| `GET /api/portal/ordenes/{id}/` | Estado de la orden, `id_externo` y `checkout_script_url` |
+
+Al pagar se crea la orden en estado `creando` y una tarea de Celery la crea en
+Klap. El portal consulta `GET /api/portal/ordenes/{id}/` hasta que la orden
+queda `pendiente` con `id_externo`, y abre el checkout con ese id. Si una orden
+sigue `pendiente` más de 10 segundos, la misma consulta pide su estado a Klap
+(RF-23), por si un webhook no llegó.
+
+Webhooks: `POST /api/pagos/webhooks/klap/{validacion|confirmacion|rechazo}/`,
+sin sesión.
+- Se verifica la cabecera `Apikey` (`sha256(reference_id + order_id + api key)`);
+  si no coincide, `401`.
+- Un webhook repetido responde `200` sin volver a procesarse.
+- Una orden ya pagada no retrocede por un rechazo tardío.
+- Si el monto informado no coincide con el de la orden, la validación responde
+  `400` (Klap reversa el cobro) y la confirmación deja la orden en `error`.
+
+Backoffice: `GET /api/ventas/?buscar=&estado=&page=` y `GET /api/ventas/{id}/`,
+con `ventas.view_venta` (Administrador y Ejecutivo). El detalle trae ítems,
+órdenes y pagos. Las ventas no se editan por la API.
+
+Los precios de `Servicio` se editan en el panel de administración; los cargados
+por la migración son valores de ejemplo, con `precio_confirmado` en falso. No
+hay endpoint de reembolso: Easy Office aún no define cuándo se devuelve un pago.
+
 ### Panel operativo (RF-14, HU-41)
 
 Ambas rutas requieren `core.view_dashboard`. Los dos parámetros son
@@ -372,6 +417,25 @@ obligatorios, y `desde` no puede ser posterior a `hasta` (si no, `400`).
 `dias_aviso` es la ventana de "por vencer"; 30 días es una suposición pendiente
 de validar (HU-42 propone 60, 30, 15 y 7).
 
+### Pago con Klap en local
+
+Klap exige URLs de webhook públicas en HTTPS y llama al webhook de validación
+mientras crea la orden, así que probar el pago de punta a punta requiere un
+túnel hacia `localhost:8000`.
+
+1. Abre un túnel, por ejemplo con `cloudflared tunnel --url http://localhost:8000`.
+2. En `.envs/.local/.django` define:
+   - `PAYMENT_PROVIDER=klap`;
+   - `KLAP_API_KEY` con la API key de prueba publicada en
+     [Datos de prueba](https://developers.klap.cl/datos-de-prueba);
+   - `PAYMENT_WEBHOOK_BASE_URL` con la URL del túnel;
+   - `DJANGO_EXTRA_ALLOWED_HOSTS` con el host del túnel.
+3. Reinicia `django` y `celeryworker`.
+4. Paga desde el portal con las tarjetas de prueba de esa misma página.
+
+Con `PAYMENT_PROVIDER=simulated` (el valor por defecto) no se contacta a ningún
+proveedor; sirve para las pruebas automáticas.
+
 ---
 
 ## Estado actual
@@ -381,11 +445,14 @@ Sprint 2 (6 – 17 de octubre de 2026). Ya están:
 - el modelo de clientes e inmuebles;
 - la autenticación del personal interno y los roles Administrador y Ejecutivo;
 - el registro y el ingreso de clientes al portal (HU-03);
+- las ventas y el pago en línea con Klap Checkout Flex en su ambiente de
+  pruebas (HU-38, HU-39, HU-40, HU-57);
 - la API de clientes (registro, edición, ficha, búsqueda y folio);
 - los indicadores del panel operativo, exportables a Excel.
 
 Siguen pendientes los campos definitivos del cliente, los estados de los
-trámites, las plantillas reales, el proveedor de firma y el de pago.
+trámites, las plantillas reales, el proveedor de firma, la confirmación del
+proveedor de pago y de los precios, y la política de reembolsos.
 
 ---
 
