@@ -150,10 +150,15 @@ class PaymentProvider(ABC): ...
   implementation that satisfies the same contract; the real one drops in via an
   environment variable.
 - **Payment.** The company has **not decided** the provider yet. Options
-  mentioned were Transbank and Mercado Pago. `integrations/payment/klap.py`
-  implements Klap Checkout Flex (sandbox), chosen with `PAYMENT_PROVIDER=klap`
-  through `payment.registry.get_payment_provider`; it is an assumption until
-  Easy Office decides. Klap requires public HTTPS webhook URLs
+  mentioned were Transbank and Mercado Pago. Two adapters exist, both an
+  assumption until Easy Office decides: `integrations/payment/klap.py` (Klap
+  Checkout Flex, modal) and `integrations/payment/flow.py` (Flow, redirect).
+  `PAYMENT_PROVIDERS` lists what the client may choose; each `OrdenPago`
+  stores its provider and `registry.get_payment_provider(nombre)` builds it.
+  Flow's notification is an unsigned token: `parse_webhook` verifies it by
+  calling `payment/getStatus`, so `webhook_needs_lookup` providers are handled
+  in the `procesar_notificacion` Celery task. Browsers come back through
+  `/api/pagos/retorno/<orden>/` (Flow returns with a POST). Klap requires public HTTPS webhook URLs
   and calls the validation webhook while it creates the order. Locally, the
   `tunnel` service in `docker-compose.local.yml` (cloudflared quick tunnel)
   provides one; `registry.webhook_base_url` reads its random URL from
