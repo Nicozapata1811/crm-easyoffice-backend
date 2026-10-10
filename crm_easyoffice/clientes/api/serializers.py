@@ -12,6 +12,7 @@ from crm_easyoffice.clientes.models import Empresa
 from crm_easyoffice.clientes.models import Persona
 from crm_easyoffice.clientes.models import RepresentanteLegal
 from crm_easyoffice.clientes.models import TipoCliente
+from crm_easyoffice.clientes.services import guardar_parte
 from crm_easyoffice.core.validators import normalize_rut
 from crm_easyoffice.core.validators import validate_rut
 
@@ -158,9 +159,8 @@ class ClienteSerializer(serializers.ModelSerializer[Cliente]):
     def create(self, validated_data: dict[str, Any]) -> Cliente:
         tipo = validated_data.pop("tipo")
         datos = validated_data.pop(tipo)
-        modelo = Persona if tipo == TipoCliente.PERSONA else Empresa
         with transaction.atomic():
-            parte, _ = modelo.objects.update_or_create(rut=datos["rut"], defaults=datos)
+            parte = guardar_parte(tipo, datos)
             # TODO(RF-15): record the creation in the audit log (HU-30).
             return Cliente.objects.create(**{tipo: parte}, **validated_data)
 
