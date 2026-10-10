@@ -108,6 +108,7 @@ LOCAL_APPS = [
     "crm_easyoffice.integrations",
     "crm_easyoffice.migracion",
     "crm_easyoffice.panel",
+    "crm_easyoffice.ventas",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -372,6 +373,13 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
     "SCHEMA_PATH_PREFIX": "/api/",
+    "ENUM_NAME_OVERRIDES": {
+        "TipoClienteEnum": "crm_easyoffice.clientes.models.TipoCliente",
+        "TipoSesionEnum": ["cliente", "staff"],
+        "TipoPagoEnum": "crm_easyoffice.ventas.models.Pago.Tipo",
+        "EstadoVentaEnum": "crm_easyoffice.ventas.models.Venta.Estado",
+        "EstadoOrdenPagoEnum": "crm_easyoffice.ventas.models.OrdenPago.Estado",
+    },
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
