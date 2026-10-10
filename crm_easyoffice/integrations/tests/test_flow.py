@@ -116,7 +116,8 @@ class TestCreatePayment:
         assert enviados == []
 
     @pytest.mark.parametrize(
-        ("status", "transient"), [(500, True), (400, False), (401, False)],
+        ("status", "transient"),
+        [(500, True), (400, False), (401, False)],
     )
     def test_http_errors_say_whether_to_retry(self, status, transient):
         provider, _ = provider_answering(lambda _: httpx.Response(status, json={}))
@@ -170,7 +171,8 @@ class TestWebhook:
     def test_an_unknown_token_is_rejected(self):
         provider, _ = provider_answering(
             lambda _: httpx.Response(
-                400, json={"code": 105, "message": "Token invalid"},
+                400,
+                json={"code": 105, "message": "Token invalid"},
             ),
         )
 
