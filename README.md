@@ -378,6 +378,10 @@ sin sesión.
 - Una orden ya pagada no retrocede por un rechazo tardío.
 - Si el monto de una confirmación no coincide con el de la orden, la orden
   queda en `error` en vez de marcar la venta como pagada.
+- Si Klap reversa un cobro antes de que lo registremos (consulta con estado
+  `refund`), la orden queda `rechazada`.
+- El código de transacción (`mc_code`) no es único: el sandbox de Klap repite
+  el mismo en todos los pagos.
 
 Backoffice: `GET /api/ventas/?buscar=&estado=&page=` y `GET /api/ventas/{id}/`,
 con `ventas.view_venta` (Administrador y Ejecutivo). El detalle trae ítems,
@@ -438,7 +442,8 @@ no hace falta: el backend tiene su propio dominio público.
      [Datos de prueba](https://developers.klap.cl/datos-de-prueba);
    - `PAYMENT_TUNNEL_METRICS_URL=http://tunnel:2000/quicktunnel`;
    - `PORTAL_BASE_URL` con la dirección donde abres el portal (por ejemplo
-     `http://localhost:5173`), porque Klap vuelve ahí después de pagar.
+     `http://localhost:5173`), porque Klap vuelve ahí después de pagar
+     (`/pagos/{orden}/resultado`, o `/cancelado` si el cliente cancela).
 2. `docker compose -f docker-compose.local.yml up -d`.
 3. Paga desde el portal con las tarjetas de prueba de esa misma página.
 
