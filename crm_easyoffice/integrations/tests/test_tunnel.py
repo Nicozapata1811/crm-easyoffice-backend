@@ -10,13 +10,15 @@ from crm_easyoffice.integrations.payment.registry import webhook_base_url
 METRICS = "http://tunnel:2000/quicktunnel"
 
 
-def answering(monkeypatch, response: httpx.Response | Exception):
+def answering(monkeypatch, response: httpx.Response | Exception, ready: int = 200):
     def get(url, timeout):
         if isinstance(response, Exception):
             raise response
-        response.request = httpx.Request("GET", url)
-        return response
+        respuesta = ready_response if url.endswith("/ready") else response
+        respuesta.request = httpx.Request("GET", url)
+        return respuesta
 
+    ready_response = httpx.Response(ready, json={"status": ready})
     monkeypatch.setattr(tunnel.httpx, "get", get)
 
 
@@ -63,3 +65,16 @@ def test_the_tunnel_is_used_when_no_url_is_configured(monkeypatch, settings):
     )
 
     assert webhook_base_url() == "https://abc.trycloudflare.com"
+
+
+def test_a_dropped_tunnel_is_reported_with_the_fix(monkeypatch):
+    answering(
+        monkeypatch,
+        httpx.Response(200, json={"hostname": "abc.trycloudflare.com"}),
+        ready=503,
+    )
+
+    with pytest.raises(PaymentError, match="restart tunnel") as error:
+        tunnel.quick_tunnel_url(METRICS)
+
+    assert not error.value.transient

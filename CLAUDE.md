@@ -160,8 +160,9 @@ class PaymentProvider(ABC): ...
   in the `procesar_notificacion` Celery task. Browsers come back through
   `/api/pagos/retorno/<orden>/` (Flow returns with a POST). Klap requires public HTTPS webhook URLs
   and calls the validation webhook while it creates the order. Locally, the
-  `tunnel` service in `docker-compose.local.yml` (cloudflared quick tunnel)
-  provides one; `registry.webhook_base_url` reads its random URL from
+  `tunnel` service in `docker-compose.local.yml` (cloudflared quick tunnel,
+  wrapped by `compose/local/tunnel/start-tunnel.sh`, which exits when the
+  tunnel dies so Docker restarts it with a new one) provides one; `registry.webhook_base_url` reads its random URL from
   `PAYMENT_TUNNEL_METRICS_URL` unless `PAYMENT_WEBHOOK_BASE_URL` is set.
   The validation call cannot be signature-checked (Klap signs it with an
   order_id it has not sent yet), so it is answered from our data only.

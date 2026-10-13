@@ -82,10 +82,21 @@ services:
     command: /start-flower
 
   # Public HTTPS URL for Klap's webhooks. It changes on every start; the
-  # backend reads it from /quicktunnel (PAYMENT_TUNNEL_METRICS_URL).
+  # backend reads it from /quicktunnel (PAYMENT_TUNNEL_METRICS_URL). Quick
+  # tunnels expire after a day or two, so the script exits when the tunnel
+  # loses its connection and Docker starts it again with a new one.
   tunnel:
-    image: docker.io/cloudflare/cloudflared:2026.10.0
+    build:
+      context: ./compose/local/tunnel
+    image: crm_easyoffice_local_tunnel
     container_name: crm_easyoffice_local_tunnel
+    restart: unless-stopped
     depends_on:
       - django
-    command: tunnel --metrics 0.0.0.0:2000 --url http://django:8000
+    command: ["http://django:8000"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "3", "-O", "/dev/null", "http://localhost:2000/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 2
+      start_period: 20s

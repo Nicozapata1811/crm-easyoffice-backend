@@ -488,6 +488,22 @@ no hace falta: el backend tiene su propio dominio público.
 Mientras el proyecto corre, la API local es alcanzable desde internet en esa URL
 aleatoria. Usa solo datos ficticios en local.
 
+**El túnel se renueva solo.** Cloudflare descarta los túneles rápidos tras uno o
+dos días, y `cloudflared` seguiría reintentando el caído para siempre. Por eso el
+servicio `tunnel` corre con un pequeño script (`compose/local/tunnel/`) que
+revisa la conexión cada 10 segundos y, si pasan alrededor de 80 sin conexión, se
+detiene: `restart: unless-stopped` lo levanta con un túnel nuevo, y el backend lee
+su URL nueva en la siguiente orden. No hace falta ningún acceso especial a
+Docker. Una orden creada justo mientras el túnel está caído termina en `error` y
+se reintenta pagando de nuevo.
+
+Si el pago sigue fallando con "No pudimos iniciar el pago" y el detalle de la
+orden habla del túnel, fuerza uno nuevo:
+
+```bash
+docker compose -f docker-compose.local.yml restart tunnel
+```
+
 Si `PAYMENT_WEBHOOK_BASE_URL` tiene valor, se usa esa URL en vez del túnel (su
 host va en `DJANGO_EXTRA_ALLOWED_HOSTS`). Con `PAYMENT_PROVIDER=simulated` (el
 valor por defecto) no se contacta a ningún proveedor; sirve para las pruebas
