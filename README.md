@@ -488,6 +488,16 @@ no hace falta: el backend tiene su propio dominio público.
 Mientras el proyecto corre, la API local es alcanzable desde internet en esa URL
 aleatoria. Usa solo datos ficticios en local.
 
+**Si el pago falla con "No pudimos iniciar el pago"** y el detalle de la orden dice
+que Klap no pudo notificar el webhook (`500010`) o que el túnel no tiene
+conexión, el túnel rápido expiró: Cloudflare los descarta tras uno o dos días y
+`cloudflared` sigue reintentando el caído. `docker compose ps` lo muestra como
+`unhealthy`. Se arregla con un túnel nuevo (otra URL, que el backend lee sola):
+
+```bash
+docker compose -f docker-compose.local.yml restart tunnel
+```
+
 Si `PAYMENT_WEBHOOK_BASE_URL` tiene valor, se usa esa URL en vez del túnel (su
 host va en `DJANGO_EXTRA_ALLOWED_HOSTS`). Con `PAYMENT_PROVIDER=simulated` (el
 valor por defecto) no se contacta a ningún proveedor; sirve para las pruebas
