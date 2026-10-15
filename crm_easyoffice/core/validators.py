@@ -7,6 +7,16 @@ import re
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
+# Leading bytes of each accepted document format.
+FILE_SIGNATURES = {
+    "jpg": (b"\xff\xd8\xff",),
+    "jpeg": (b"\xff\xd8\xff",),
+    "png": (b"\x89PNG\r\n\x1a\n",),
+    "pdf": (b"%PDF-",),
+}
+
 RUT_PATTERN = re.compile(r"^(\d{7,8})-([\dkK])$")
 RUT_SEPARATORS = re.compile(r"[.\s]")
 
@@ -76,4 +86,38 @@ def validate_rut(value: str) -> None:
         raise ValidationError(
             _("The RUT check digit is incorrect."),
             code="invalid_rut_check_digit",
+        )
+
+
+def validate_max_file_size(file) -> None:
+    """Reject uploads larger than ``MAX_UPLOAD_BYTES``.
+
+    ASSUMPTION: pending validation with Easy Office. 5 MB is ample for a
+    scanned identity card; no limit has been agreed.
+    """
+    if file.size > MAX_UPLOAD_BYTES:
+        raise ValidationError(
+            _("The file is larger than %(limit)s MB."),
+            code="file_too_large",
+            params={"limit": MAX_UPLOAD_BYTES // (1024 * 1024)},
+        )
+
+
+def validate_file_signature(file) -> None:
+    """Check that the content matches the extension, not just the file name.
+
+    A renamed executable or script with a ``.jpg`` name is rejected. Only the
+    formats in ``FILE_SIGNATURES`` are known; pair this validator with a
+    ``FileExtensionValidator`` restricted to them.
+    """
+    extension = file.name.rsplit(".", 1)[-1].lower() if "." in file.name else ""
+    signatures = FILE_SIGNATURES.get(extension, ())
+    position = file.tell() if hasattr(file, "tell") else 0
+    file.seek(0)
+    head = file.read(16)
+    file.seek(position)
+    if not any(head.startswith(signature) for signature in signatures):
+        raise ValidationError(
+            _("The file content does not match its format."),
+            code="file_signature_mismatch",
         )
