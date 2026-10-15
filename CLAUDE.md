@@ -286,6 +286,9 @@ The repository is **public**.
 - Branch per user story: `feature/HU-14-tipo-tramite-configurable`
 - Every commit references its GitHub issue: `refs #42`
 - Nothing reaches `main` without a Pull Request reviewed by another team member
+- When a task changes code, models, migrations, the API, settings, dependencies
+  or tests, finish it with the `exportar-cambios` skill (`.claude/skills/`) and
+  show its prompt, so the documentation chat can be updated
 - Traceability chain the project is graded on:
   `requirement → user story → issue → commit/PR → test → evidence`
 
