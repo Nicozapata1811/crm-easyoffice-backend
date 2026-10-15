@@ -11,8 +11,10 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def _media_storage(settings, tmpdir) -> None:
+def _media_storage(settings, tmpdir, tmp_path_factory) -> None:
     settings.MEDIA_ROOT = tmpdir.strpath
+    # A sibling of MEDIA_ROOT, never inside it, as in production.
+    settings.PRIVATE_MEDIA_ROOT = str(tmp_path_factory.mktemp("private_media"))
 
 
 @pytest.fixture

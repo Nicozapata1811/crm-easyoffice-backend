@@ -78,6 +78,10 @@ RUN chmod +x /start-flower
 COPY --from=python-build-stage --chown=django:django ${APP_HOME} ${APP_HOME}
 # explicitly create the media folder before changing ownership below
 RUN mkdir -p ${APP_HOME}/crm_easyoffice/media
+# private uploads (identity cards); a named volume copies this ownership
+RUN mkdir -p ${APP_HOME}/private_media \
+  && chown django:django ${APP_HOME}/private_media \
+  && chmod 700 ${APP_HOME}/private_media
 
 # make django owner of the WORKDIR directory as well.
 RUN chown django:django ${APP_HOME}

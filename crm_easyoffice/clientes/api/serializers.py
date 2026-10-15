@@ -41,6 +41,12 @@ class PersonaSerializer(serializers.ModelSerializer[Persona]):
             "nombres",
             "apellido_paterno",
             "apellido_materno",
+            "nacionalidad",
+            "estado_civil",
+            "profesion",
+            "domicilio",
+            "comuna",
+            "region",
             "email",
             "telefono",
         ]
@@ -60,7 +66,16 @@ class RepresentanteSerializer(serializers.ModelSerializer[RepresentanteLegal]):
 
     class Meta:
         model = RepresentanteLegal
-        fields = ["id", "rut", "nombre", "vigente_desde", "vigente_hasta", "activo"]
+        fields = [
+            "id",
+            "rut",
+            "nombre",
+            "vigente_desde",
+            "vigente_hasta",
+            "fecha_instrumento",
+            "sitio_o_notaria",
+            "activo",
+        ]
         read_only_fields = fields
 
 

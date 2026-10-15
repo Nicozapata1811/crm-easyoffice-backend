@@ -3,6 +3,9 @@ volumes:
   production_postgres_data_backups: {}
   production_traefik: {}
   production_django_media: {}
+  # Identity cards and other sensitive uploads. Mounted on the Django and
+  # Celery containers only, never on nginx (Ley 21.719).
+  production_django_private_media: {}
 
   production_redis_data: {}
 
@@ -17,6 +20,7 @@ services:
     image: crm_easyoffice_production_django
     volumes:
       - production_django_media:/app/crm_easyoffice/media
+      - production_django_private_media:/app/private_media
     depends_on:
       - postgres
       - redis
