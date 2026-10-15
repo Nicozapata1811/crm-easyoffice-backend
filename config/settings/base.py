@@ -103,6 +103,7 @@ LOCAL_APPS = [
     "crm_easyoffice.users",
     "crm_easyoffice.clientes",
     "crm_easyoffice.inmuebles",
+    "crm_easyoffice.configuracion",
     "crm_easyoffice.tramites",
     "crm_easyoffice.documentos",
     "crm_easyoffice.integrations",

@@ -49,6 +49,7 @@ explicit boundaries:
 core/           users, roles, permissions, audit log
 clientes/       persona, empresa, representante legal
 inmuebles/      oficinas, rol de avalúo, domicile assignments
+configuracion/  the issuing company (Easy Office), brands, payment accounts
 tramites/       tipo de trámite (configuration), trámite, state machine
 documentos/     plantillas (versioned), documento generation, hashing
 integrations/   SignatureService, PaymentService + implementations
@@ -210,6 +211,13 @@ Never import a provider SDK outside `integrations/`.
   - `Cliente.folio` (`CLI-000001`) is assigned in `save()`.
   - The final client fields (MD-01) are still pending; `seed_demo_clientes`
     loads fictitious data meanwhile.
+- **Issuer configuration** (`configuracion/`, HU-65): `ConfigEmpresa` (one
+  row, enforced by a constraint), `Marca` (EASY OFFICE, INOFFICE) and
+  `CuentaPago` (`texto_contrato` is what the contract prints). Seeded with
+  fictitious values and no RUT; the real data is entered in the admin and
+  never committed. Nothing is deleted, only deactivated. Read it through
+  `configuracion.services` (`obtener_config_empresa`, `marcas_activas`,
+  `cuenta_pago_para`). That both brands are one company is an assumption.
 - **Dashboard** (`panel/`): `GET /api/panel/indicadores/` and `.../exportar/`
   (`.xlsx` via openpyxl), both requiring `core.view_dashboard`.
   - Client counts come from `clientes.services.contar_clientes`.
