@@ -80,7 +80,7 @@ class ServicioPortalView(ListAPIView):
     permission_classes = [AllowAny]
     serializer_class = ServicioSerializer
     pagination_class = None
-    queryset = Servicio.objects.filter(activo=True)
+    queryset = Servicio.objects.filter(activo=True, se_vende_en_portal=True)
 
 
 class VentaPortalViewSet(

@@ -6,6 +6,7 @@ import uuid
 
 from django.db import models
 from django.db import transaction
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
 from crm_easyoffice.clientes.models import Cliente
@@ -14,24 +15,76 @@ from crm_easyoffice.core.models import TimestampedModel
 MONTO = {"max_digits": 12, "decimal_places": 0}
 
 
+class CicloPago(TimestampedModel):
+    """How often a contracted service is charged: único, mensual, anual, …"""
+
+    codigo = models.SlugField(_("código"), max_length=30, unique=True)
+    nombre = models.CharField(_("nombre"), max_length=60)
+    meses = models.PositiveSmallIntegerField(
+        _("meses"),
+        null=True,
+        blank=True,
+        help_text=_("Months between charges. Empty for a one-off charge."),
+    )
+    orden = models.PositiveSmallIntegerField(_("orden"), default=0)
+    activo = models.BooleanField(_("activo"), default=True)
+
+    class Meta:
+        verbose_name = _("ciclo de pago")
+        verbose_name_plural = _("ciclos de pago")
+        ordering = ["orden", "nombre"]
+
+    def __str__(self) -> str:
+        return self.nombre
+
+
 class Servicio(TimestampedModel):
-    """A service the portal sells, with its list price.
+    """A service Easy Office offers, with its list price.
+
+    The portal sells only those with ``se_vende_en_portal``; the rest are
+    contracted through an executive. A service with no fixed price has no
+    ``precio_base`` and can never be sold in the portal.
 
     ASSUMPTION: pending validation with Easy Office. Prices are not confirmed
-    (MD-06); ``precio_confirmado`` stays false until they are.
+    (MD-06, TA-15) and whether they include VAT is contradictory (RN-44 says
+    yes, the contract template says "más I.V.A."), so ``precio_confirmado``
+    stays false and ``precio_incluye_iva`` records which reading each price
+    follows.
     """
 
     codigo = models.SlugField(_("código"), max_length=50, unique=True)
     nombre = models.CharField(_("nombre"), max_length=150)
     descripcion = models.TextField(_("descripción"), blank=True)
-    precio_base = models.DecimalField(_("precio base (CLP)"), **MONTO)
+    precio_base = models.DecimalField(
+        _("precio base (CLP)"),
+        null=True,
+        blank=True,
+        help_text=_("Empty when the service has no fixed price."),
+        **MONTO,
+    )
+    precio_incluye_iva = models.BooleanField(_("precio incluye IVA"), default=True)
     precio_confirmado = models.BooleanField(_("precio confirmado"), default=False)
+    ciclo_pago_default = models.ForeignKey(
+        CicloPago,
+        verbose_name=_("ciclo de pago por defecto"),
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="servicios",
+    )
+    se_vende_en_portal = models.BooleanField(_("se vende en el portal"), default=True)
     activo = models.BooleanField(_("activo"), default=True)
 
     class Meta:
         verbose_name = _("servicio")
         verbose_name_plural = _("servicios")
         ordering = ["nombre"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(se_vende_en_portal=False) | Q(precio_base__isnull=False),
+                name="servicio_portal_con_precio",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.nombre

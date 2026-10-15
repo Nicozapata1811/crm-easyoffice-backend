@@ -17,6 +17,11 @@ MAX_CANTIDAD = 10
 
 
 class ServicioSerializer(serializers.ModelSerializer[Servicio]):
+    ciclo_pago_default = serializers.SlugRelatedField(
+        slug_field="codigo",
+        read_only=True,
+    )
+
     class Meta:
         model = Servicio
         fields = [
@@ -25,7 +30,9 @@ class ServicioSerializer(serializers.ModelSerializer[Servicio]):
             "nombre",
             "descripcion",
             "precio_base",
+            "precio_incluye_iva",
             "precio_confirmado",
+            "ciclo_pago_default",
         ]
         read_only_fields = fields
 
@@ -195,7 +202,7 @@ class VentaBackofficeSerializer(serializers.ModelSerializer[Venta]):
 class LineaVentaSerializer(serializers.Serializer):
     servicio = serializers.SlugRelatedField(
         slug_field="codigo",
-        queryset=Servicio.objects.filter(activo=True),
+        queryset=Servicio.objects.filter(activo=True, se_vende_en_portal=True),
     )
     cantidad = serializers.IntegerField(min_value=1, max_value=MAX_CANTIDAD, default=1)
 

@@ -249,7 +249,8 @@ Never import a provider SDK outside `integrations/`.
     it from `datos_de_ejemplo`.
 
 - **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
-  `precio_confirmado=False`), `Venta`, `ItemVenta` (price copied, RN-08),
+  `precio_confirmado=False`), `CicloPago` (único … anual, HU-23), `Venta`,
+  `ItemVenta` (price copied, RN-08),
   `OrdenPago` (one per attempt, RN-28), `Pago` and the append-only
   `EventoPago`. State changes go through `ventas.services` only; the order's
   transition table is `TRANSICIONES` there. Orders are created at the provider
@@ -258,6 +259,14 @@ Never import a provider SDK outside `integrations/`.
   - Portal: `/api/portal/servicios/`, `/api/portal/ventas/` (+ `pagar/`),
     `/api/portal/ordenes/{id}/`. Webhooks: `/api/pagos/webhooks/<provider>/<event>/`.
     Backoffice: read-only `/api/ventas/` with `ventas.view_venta`.
+  - The catalogue comes from Easy Office's contract form
+    (`0007_seed_catalogo_formulario`, descriptions verbatim): domicilio
+    tributario, creación de empresas, web mail + dominio, and contabilidad
+    (inactive, no price, until Easy Office provides one). Only services with
+    `se_vende_en_portal` are listed or sold in the portal, and a constraint
+    stops a portal service from having no price. `precio_incluye_iva` records
+    how each price reads while the VAT question is open (RN-44 vs the
+    template's "más I.V.A."); every price stays unconfirmed until then.
   - Not built yet: a refund endpoint (refund policy undefined) and real sales
     figures in the dashboard (`ventas` is still an example key: sales have no
     executive yet).
