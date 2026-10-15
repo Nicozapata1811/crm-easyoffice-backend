@@ -42,7 +42,7 @@ class Oficina(TimestampedModel):
     tipo = models.CharField(
         _("tipo"),
         max_length=20,
-        choices=TipoInmueble.choices,
+        choices=TipoInmueble,
         default=TipoInmueble.OFICINA,
     )
     # NULL rather than "" so that only branches compete for uniqueness.
