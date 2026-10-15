@@ -49,3 +49,7 @@ def cuenta_pago_para(marca: Marca, cuenta: CuentaPago | None = None) -> CuentaPa
         msg = f"No active payment account for {marca}."
         raise ConfiguracionIncompletaError(msg)
     return elegida
+
+
+def cuentas_pago_activas() -> QuerySet[CuentaPago]:
+    return CuentaPago.objects.filter(activa=True)
