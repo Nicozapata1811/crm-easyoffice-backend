@@ -1,4 +1,7 @@
-"""Every state change of a sale or a payment goes through here."""
+"""Sale and payment state changes, and the catalogue reads other apps need.
+
+Every state change of a sale or a payment goes through here.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ from django.utils import timezone
 from crm_easyoffice.integrations.payment.base import PaymentStatus
 from crm_easyoffice.integrations.payment.registry import proveedores_habilitados
 
+from .models import CicloPago
 from .models import ItemVenta
 from .models import OrdenPago
 from .models import Pago
@@ -21,6 +25,8 @@ from .models import Venta
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from django.db.models import QuerySet
 
     from crm_easyoffice.clientes.models import Cliente
     from crm_easyoffice.integrations.payment.base import PaymentResult
@@ -219,3 +225,8 @@ def _registrar_pago(orden: OrdenPago, resultado: PaymentResult) -> None:
     venta.estado = Venta.Estado.PAGADA
     venta.pagada_en = timezone.now()
     venta.save(update_fields=["estado", "pagada_en", "updated_at"])
+
+
+def ciclos_pago_activos() -> QuerySet[CicloPago]:
+    """Payment cycles a contracted service may use, in display order."""
+    return CicloPago.objects.filter(activo=True)
