@@ -208,6 +208,10 @@ Never import a provider SDK outside `integrations/`.
   - A RUT that is already a client is rejected (HU-52). A Persona or Empresa on
     record that is not yet a client is linked instead.
   - `Cliente.folio` (`CLI-000001`) is assigned in `save()`.
+  - `Persona` carries the optional contract data (`nacionalidad`,
+    `estado_civil` from the `EstadoCivil` choices, `profesion`, `domicilio`,
+    `comuna`, `region`); `RepresentanteLegal` carries the personería
+    (`fecha_instrumento`, `sitio_o_notaria`).
   - The final client fields (MD-01) are still pending; `seed_demo_clientes`
     loads fictitious data meanwhile.
 - **Dashboard** (`panel/`): `GET /api/panel/indicadores/` and `.../exportar/`
