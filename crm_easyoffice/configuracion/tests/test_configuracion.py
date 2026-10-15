@@ -10,6 +10,7 @@ from django.contrib.auth.models import Group
 from django.db import IntegrityError
 from django.urls import reverse
 
+from crm_easyoffice.clientes.tests.factories import PersonaFactory
 from crm_easyoffice.configuracion.models import ConfigEmpresa
 from crm_easyoffice.configuracion.models import Marca
 from crm_easyoffice.configuracion.services import ConfiguracionIncompletaError
@@ -118,3 +119,18 @@ class TestAdmin:
         )
 
         assert response.status_code == HTTPStatus.OK
+
+    def test_representative_is_searched_by_rut(self, admin_client):
+        persona = PersonaFactory.create()
+
+        response = admin_client.get(
+            reverse("admin:autocomplete"),
+            {
+                "app_label": "configuracion",
+                "model_name": "configempresa",
+                "field_name": "representante",
+                "term": persona.rut,
+            },
+        )
+
+        assert [fila["id"] for fila in response.json()["results"]] == [str(persona.pk)]
