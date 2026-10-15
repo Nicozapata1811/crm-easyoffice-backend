@@ -17,6 +17,7 @@ from crm_easyoffice.clientes.models import RepresentanteLegal
 from crm_easyoffice.clientes.tests.factories import ClienteFactory
 from crm_easyoffice.clientes.tests.factories import EmpresaFactory
 from crm_easyoffice.clientes.tests.factories import PersonaFactory
+from crm_easyoffice.clientes.tests.factories import RepresentanteLegalFactory
 from crm_easyoffice.users.tests.factories import UserFactory
 
 seed = importlib.import_module("crm_easyoffice.core.migrations.0002_seed_roles")
@@ -82,6 +83,40 @@ class TestCreate:
         assert response.data["folio"] == cliente.folio
         assert response.data["tipo"] == "persona"
         assert response.data["empresa"] is None
+
+    def test_creates_persona_with_civil_data(self, ejecutivo):
+        payload = persona_payload(
+            nacionalidad="chilena",
+            estado_civil="casado",
+            profesion="Profesión de ejemplo",
+            domicilio="Calle de Ejemplo 123",
+            comuna="Comuna de Ejemplo",
+            region="Región de Ejemplo",
+        )
+
+        response = ejecutivo.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == HTTPStatus.CREATED
+        persona = Persona.objects.get(rut="11111112-K")
+        assert persona.estado_civil == "casado"
+        assert persona.domicilio == "Calle de Ejemplo 123"
+        assert response.data["persona"]["nacionalidad"] == "chilena"
+
+    def test_civil_data_is_optional(self, ejecutivo):
+        response = ejecutivo.post(LIST_URL, persona_payload(), format="json")
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert response.data["persona"]["estado_civil"] == ""
+
+    def test_rejects_unknown_estado_civil(self, ejecutivo):
+        response = ejecutivo.post(
+            LIST_URL,
+            persona_payload(estado_civil="comprometido"),
+            format="json",
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "estado_civil" in response.data["persona"]
 
     def test_creates_an_empresa(self, ejecutivo):
         response = ejecutivo.post(LIST_URL, empresa_payload(), format="json")
@@ -223,6 +258,19 @@ class TestRead:
         [fila] = response.data["representantes"]
         assert fila["rut"] == representante.rut
         assert fila["nombre"] == representante.nombre_completo
+
+    def test_representantes_expose_personeria(self, ejecutivo):
+        representacion = RepresentanteLegalFactory.create(
+            fecha_instrumento=date(2025, 6, 30),
+            sitio_o_notaria="Notaría de Ejemplo",
+        )
+        cliente = ClienteFactory.create(persona=None, empresa=representacion.empresa)
+
+        response = ejecutivo.get(detail_url(cliente))
+
+        [fila] = response.data["representantes"]
+        assert fila["fecha_instrumento"] == "2025-06-30"
+        assert fila["sitio_o_notaria"] == "Notaría de Ejemplo"
 
     def test_list_is_paginated_newest_first(self, ejecutivo):
         primero, segundo = ClienteFactory.create_batch(2)

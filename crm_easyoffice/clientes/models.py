@@ -20,6 +20,22 @@ from crm_easyoffice.core.models import TimestampedModel
 from crm_easyoffice.core.validators import validate_rut
 
 
+class EstadoCivil(models.TextChoices):
+    """Civil status as recorded by the Registro Civil, including Ley 20.830.
+
+    ASSUMPTION: pending validation with Easy Office. Labels are neutral; the
+    gendered form a contract prints ("casada", "casado") is left to the
+    document template.
+    """
+
+    SOLTERO = "soltero", _("soltero(a)")
+    CASADO = "casado", _("casado(a)")
+    VIUDO = "viudo", _("viudo(a)")
+    DIVORCIADO = "divorciado", _("divorciado(a)")
+    SEPARADO_JUDICIALMENTE = "separado_judicialmente", _("separado(a) judicialmente")
+    CONVIVIENTE_CIVIL = "conviviente_civil", _("conviviente civil")
+
+
 class Persona(TimestampedModel):
     """A natural person, whether a client, a legal representative, or both.
 
@@ -30,6 +46,10 @@ class Persona(TimestampedModel):
     optional because foreign nationals frequently have no second surname, and
     contact details are optional at record level because which ones are
     mandatory is expected to vary by trámite.
+
+    nacionalidad, estado_civil and profesion are optional too: contracts ask
+    them of Easy Office's representative, property owners, shareholders and
+    lessors, but not of a client company's representative.
     """
 
     rut = models.CharField(
@@ -46,6 +66,22 @@ class Persona(TimestampedModel):
         max_length=100,
         blank=True,
     )
+    nacionalidad = models.CharField(_("nacionalidad"), max_length=60, blank=True)
+    estado_civil = models.CharField(
+        _("estado civil"),
+        max_length=30,
+        choices=EstadoCivil.choices,
+        blank=True,
+    )
+    profesion = models.CharField(_("profesión"), max_length=100, blank=True)
+    domicilio = models.CharField(
+        _("domicilio"),
+        max_length=255,
+        blank=True,
+        help_text=_("Street and number of the person's own address."),
+    )
+    comuna = models.CharField(_("comuna"), max_length=100, blank=True)
+    region = models.CharField(_("región"), max_length=100, blank=True)
     email = models.EmailField(_("email"), blank=True)
     telefono = models.CharField(_("teléfono"), max_length=20, blank=True)
     activo = models.BooleanField(_("activo"), default=True)
@@ -205,6 +241,9 @@ class RepresentanteLegal(TimestampedModel):
     it starts and ends. Asking who may sign for a company on a given date is a
     query over vigente_desde and vigente_hasta.
 
+    The personería (fecha_instrumento, sitio_o_notaria) belongs here, not on
+    Empresa: it is this person's authority for this company.
+
     ASSUMPTION: pending validation with Easy Office. Overlapping
     representations are permitted, since companies may have several
     representatives at once, and no field records whether they act jointly or
@@ -229,6 +268,18 @@ class RepresentanteLegal(TimestampedModel):
         null=True,
         blank=True,
         help_text=_("Empty means the representation has no end date."),
+    )
+    fecha_instrumento = models.DateField(
+        _("fecha del instrumento"),
+        null=True,
+        blank=True,
+        help_text=_("Date of the deed or updated statute granting the personería."),
+    )
+    sitio_o_notaria = models.CharField(
+        _("sitio o notaría"),
+        max_length=255,
+        blank=True,
+        help_text=_("Registry or notary office where the personería was granted."),
     )
     activo = models.BooleanField(_("activo"), default=True)
 
