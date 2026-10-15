@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from .models import CicloPago
 from .models import EventoPago
 from .models import OrdenPago
 from .models import Pago
@@ -7,10 +8,25 @@ from .models import Servicio
 from .models import Venta
 
 
+@admin.register(CicloPago)
+class CicloPagoAdmin(admin.ModelAdmin):
+    list_display = ["nombre", "codigo", "meses", "orden", "activo"]
+    list_filter = ["activo"]
+
+
 @admin.register(Servicio)
 class ServicioAdmin(admin.ModelAdmin):
-    list_display = ["codigo", "nombre", "precio_base", "precio_confirmado", "activo"]
-    list_filter = ["activo", "precio_confirmado"]
+    list_display = [
+        "codigo",
+        "nombre",
+        "precio_base",
+        "precio_incluye_iva",
+        "precio_confirmado",
+        "ciclo_pago_default",
+        "se_vende_en_portal",
+        "activo",
+    ]
+    list_filter = ["activo", "se_vende_en_portal", "precio_confirmado"]
     search_fields = ["codigo", "nombre"]
 
 
