@@ -70,7 +70,7 @@ class Persona(TimestampedModel):
     estado_civil = models.CharField(
         _("estado civil"),
         max_length=30,
-        choices=EstadoCivil.choices,
+        choices=EstadoCivil,
         blank=True,
     )
     profesion = models.CharField(_("profesión"), max_length=100, blank=True)
