@@ -21,7 +21,7 @@ def test_creates_valid_fictitious_clients(settings):
     for cliente in clientes:
         validate_rut(cliente.parte.rut)
         assert cliente.parte.email.endswith("example.test")
-        assert cliente.folio
+        assert cliente.codigo
 
 
 def test_running_twice_creates_nothing_new(settings):

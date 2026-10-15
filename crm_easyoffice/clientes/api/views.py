@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from rest_framework.serializers import BaseSerializer
 
 SEARCH_FIELDS = [
-    "folio",
+    "codigo",
     "persona__nombres",
     "persona__apellido_paterno",
     "persona__apellido_materno",

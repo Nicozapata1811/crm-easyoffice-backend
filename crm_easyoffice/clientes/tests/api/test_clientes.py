@@ -73,14 +73,14 @@ def empresa_payload(**overrides: str) -> dict:
 
 
 class TestCreate:
-    def test_creates_a_persona_with_a_normalised_rut_and_a_folio(self, ejecutivo):
+    def test_creates_a_persona_with_a_normalised_rut_and_a_codigo(self, ejecutivo):
         response = ejecutivo.post(LIST_URL, persona_payload(), format="json")
 
         assert response.status_code == HTTPStatus.CREATED
         cliente = Cliente.objects.get(pk=response.data["id"])
         assert cliente.parte.rut == "11111112-K"
-        assert cliente.folio == f"CLI-{cliente.pk:06d}"
-        assert response.data["folio"] == cliente.folio
+        assert cliente.codigo == f"CLI-{cliente.pk:06d}"
+        assert response.data["codigo"] == cliente.codigo
         assert response.data["tipo"] == "persona"
         assert response.data["empresa"] is None
 
@@ -296,6 +296,38 @@ class TestRead:
         assert [fila["id"] for fila in response.data["results"]] == [empresa.pk]
 
 
+class TestFolioAlias:
+    """Cliente.folio became codigo; the old key stays for one release."""
+
+    def test_list_keeps_deprecated_folio_alias(self, ejecutivo):
+        cliente = ClienteFactory.create()
+
+        [fila] = ejecutivo.get(LIST_URL).data["results"]
+
+        assert fila["codigo"] == cliente.codigo
+        assert fila["folio"] == cliente.codigo
+
+    def test_record_keeps_deprecated_folio_alias(self, ejecutivo):
+        cliente = ClienteFactory.create()
+
+        response = ejecutivo.get(detail_url(cliente))
+
+        assert response.data["folio"] == response.data["codigo"] == cliente.codigo
+
+    def test_folio_alias_is_read_only(self, ejecutivo):
+        cliente = ClienteFactory.create()
+
+        response = ejecutivo.patch(
+            detail_url(cliente),
+            {"folio": "CLI-999999", "codigo": "CLI-999999"},
+            format="json",
+        )
+
+        assert response.status_code == HTTPStatus.OK
+        cliente.refresh_from_db()
+        assert cliente.codigo == f"CLI-{cliente.pk:06d}"
+
+
 class TestSearch:
     @pytest.fixture
     def clientes(self, db) -> dict[str, Cliente]:
@@ -336,12 +368,12 @@ class TestSearch:
             clientes[esperado].pk,
         ]
 
-    def test_finds_by_folio(self, ejecutivo, clientes):
-        folio = clientes["empresa"].folio
+    def test_finds_by_codigo(self, ejecutivo, clientes):
+        codigo = clientes["empresa"].codigo
 
-        response = ejecutivo.get(LIST_URL, {"buscar": folio.lower()})
+        response = ejecutivo.get(LIST_URL, {"buscar": codigo.lower()})
 
-        assert [fila["folio"] for fila in response.data["results"]] == [folio]
+        assert [fila["codigo"] for fila in response.data["results"]] == [codigo]
 
     def test_every_word_must_match(self, ejecutivo, clientes):
         response = ejecutivo.get(LIST_URL, {"buscar": "valentina austral"})

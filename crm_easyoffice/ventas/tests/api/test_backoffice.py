@@ -49,7 +49,9 @@ def test_detail_carries_orders_and_payments():
         reverse("api:venta-detail", args=[orden.venta_id]),
     )
 
-    assert response.data["cliente"]["folio"] == orden.venta.cliente.folio
+    codigo = orden.venta.cliente.codigo
+    assert response.data["cliente"]["codigo"] == codigo
+    assert response.data["cliente"]["folio"] == codigo  # deprecated alias
     assert response.data["ordenes"][0]["id_externo"] == orden.id_externo
     assert response.data["ordenes"][0]["pagos"] == []
 

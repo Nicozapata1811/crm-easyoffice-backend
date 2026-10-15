@@ -1,4 +1,5 @@
 from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from crm_easyoffice.users.models import User
@@ -19,9 +20,12 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(trim_whitespace=False)
 
 
+@extend_schema_serializer(deprecate_fields=["folio"])
 class ClienteSesionSerializer(serializers.Serializer):
     id = serializers.IntegerField()
-    folio = serializers.CharField()
+    codigo = serializers.CharField()
+    # Old name of codigo, kept for one release until the frontend reads codigo.
+    folio = serializers.CharField(source="codigo", read_only=True)
     nombre = serializers.CharField()
 
 
