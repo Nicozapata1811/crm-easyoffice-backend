@@ -182,14 +182,24 @@ class VentaBackofficeSerializer(serializers.ModelSerializer[Venta]):
             "type": "object",
             "properties": {
                 "id": {"type": "integer"},
-                "folio": {"type": "string"},
+                "codigo": {"type": "string"},
+                "folio": {
+                    "type": "string",
+                    "deprecated": True,
+                    "description": "Old name of codigo, kept for one release.",
+                },
                 "nombre": {"type": "string"},
             },
         },
     )
     def get_cliente(self, venta: Venta) -> dict:
         cliente = venta.cliente
-        return {"id": cliente.pk, "folio": cliente.folio, "nombre": cliente.nombre}
+        return {
+            "id": cliente.pk,
+            "codigo": cliente.codigo,
+            "folio": cliente.codigo,
+            "nombre": cliente.nombre,
+        }
 
 
 class LineaVentaSerializer(serializers.Serializer):

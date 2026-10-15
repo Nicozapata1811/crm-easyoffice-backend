@@ -43,10 +43,19 @@ def test_registration_starts_a_client_session():
 
     assert response.status_code == HTTPStatus.CREATED
     assert response.data["tipo"] == "cliente"
-    assert response.data["cliente"]["folio"].startswith("CLI-")
+    assert response.data["cliente"]["codigo"].startswith("CLI-")
     assert response.data["permisos"] == []
     me = api_client.get(reverse("auth:me"))
     assert me.data["cliente"]["id"] == response.data["cliente"]["id"]
+
+
+def test_me_keeps_deprecated_folio_alias():
+    api_client = APIClient()
+    api_client.post(REGISTRO_URL, payload(), format="json")
+
+    cliente = api_client.get(reverse("auth:me")).data["cliente"]
+
+    assert cliente["folio"] == cliente["codigo"]
 
 
 def test_registration_requires_csrf():

@@ -39,7 +39,7 @@ class TestNewClient:
         cuenta = registrar("persona", persona(synthetic_rut(41_000_001)))
 
         assert cuenta.cliente.persona.rut == synthetic_rut(41_000_001)
-        assert cuenta.cliente.folio
+        assert cuenta.cliente.codigo
         assert cuenta.user.check_password(PASSWORD)
         assert not cuenta.user.is_staff
         assert not cuenta.user.groups.exists()

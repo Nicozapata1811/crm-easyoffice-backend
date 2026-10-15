@@ -141,8 +141,8 @@ class TipoCliente(models.TextChoices):
     EMPRESA = "empresa", _("empresa")
 
 
-def format_folio(pk: int) -> str:
-    """Return the folio for a client primary key, for example ``CLI-000042``."""
+def format_codigo(pk: int) -> str:
+    """Return the internal code for a client primary key, e.g. ``CLI-000042``."""
     return f"CLI-{pk:06d}"
 
 
@@ -160,17 +160,20 @@ class Cliente(TimestampedModel):
     such as the assigned executive or the date of first contact are not
     modelled until the counterpart confirms them.
 
-    ASSUMPTION: pending validation with Easy Office. The folio format is ours;
-    their spreadsheet may already number clients (HU-32).
+    ASSUMPTION: pending validation with Easy Office. The codigo format is
+    ours; their spreadsheet may already number clients (HU-32).
+
+    codigo was called folio until the folio moved to the contract (RN-38):
+    Easy Office's folio identifies a contract, not a client.
     """
 
-    folio = models.CharField(  # noqa: DJ001 - null until save() assigns it
-        _("folio"),
+    codigo = models.CharField(  # noqa: DJ001 - null until save() assigns it
+        _("código"),
         max_length=12,
         unique=True,
         null=True,
         editable=False,
-        help_text=_("Assigned on creation from the primary key."),
+        help_text=_("Internal client code, assigned on creation from the primary key."),
     )
     persona = models.OneToOneField(
         Persona,
@@ -209,9 +212,9 @@ class Cliente(TimestampedModel):
     def save(self, *args, **kwargs) -> None:
         with transaction.atomic():
             super().save(*args, **kwargs)
-            if not self.folio:
-                self.folio = format_folio(self.pk)
-                super().save(update_fields=["folio"])
+            if not self.codigo:
+                self.codigo = format_codigo(self.pk)
+                super().save(update_fields=["codigo"])
 
     @property
     def es_empresa(self) -> bool:

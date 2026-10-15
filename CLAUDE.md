@@ -207,7 +207,11 @@ Never import a provider SDK outside `integrations/`.
   - RUTs are normalised with `core.validators.normalize_rut` before validation.
   - A RUT that is already a client is rejected (HU-52). A Persona or Empresa on
     record that is not yet a client is linked instead.
-  - `Cliente.folio` (`CLI-000001`) is assigned in `save()`.
+  - `Cliente.codigo` (`CLI-000001`) is an internal id assigned in `save()`.
+    It was `folio` until the folio moved to the contract (RN-38). Client
+    payloads (`/api/clientes/`, `me`, `/api/ventas/`) still carry `folio` as
+    a deprecated alias of `codigo` for one release; drop it once the frontend
+    reads `codigo`.
   - `Persona` carries the optional contract data (`nacionalidad`,
     `estado_civil` from the `EstadoCivil` choices, `profesion`, `domicilio`,
     `comuna`, `region`); `RepresentanteLegal` carries the personería
