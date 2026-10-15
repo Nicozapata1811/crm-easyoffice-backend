@@ -5,6 +5,7 @@ from typing import Any
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from crm_easyoffice.clientes.models import Cliente
@@ -18,6 +19,17 @@ from crm_easyoffice.core.validators import validate_rut
 
 RUT_YA_REGISTRADO = _("A client with this RUT already exists.")
 RUT_DE_OTRA_PARTE = _("This RUT belongs to another person or company on record.")
+
+
+class FolioObsoletoField(serializers.CharField):
+    """The client's codigo under its old name, kept for one release.
+
+    Cliente.folio became codigo when the folio moved to the contract. Remove
+    this field once the frontend reads codigo.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(source="codigo", read_only=True, **kwargs)
 
 
 class RutField(serializers.CharField):
@@ -79,7 +91,9 @@ class RepresentanteSerializer(serializers.ModelSerializer[RepresentanteLegal]):
         read_only_fields = fields
 
 
+@extend_schema_serializer(deprecate_fields=["folio"])
 class ClienteResumenSerializer(serializers.ModelSerializer[Cliente]):
+    folio = FolioObsoletoField()
     tipo = serializers.ChoiceField(choices=TipoCliente.choices)
     rut = serializers.CharField(source="parte.rut")
     nombre = serializers.CharField()
@@ -90,6 +104,7 @@ class ClienteResumenSerializer(serializers.ModelSerializer[Cliente]):
         model = Cliente
         fields = [
             "id",
+            "codigo",
             "folio",
             "tipo",
             "rut",
@@ -102,9 +117,11 @@ class ClienteResumenSerializer(serializers.ModelSerializer[Cliente]):
         read_only_fields = fields
 
 
+@extend_schema_serializer(deprecate_fields=["folio"])
 class ClienteSerializer(serializers.ModelSerializer[Cliente]):
     """A client record. Writes carry the nested data of its persona or empresa."""
 
+    folio = FolioObsoletoField()
     tipo = serializers.ChoiceField(choices=TipoCliente.choices)
     persona = PersonaSerializer(required=False)
     empresa = EmpresaSerializer(required=False)
@@ -114,6 +131,7 @@ class ClienteSerializer(serializers.ModelSerializer[Cliente]):
         model = Cliente
         fields = [
             "id",
+            "codigo",
             "folio",
             "tipo",
             "activo",
@@ -123,7 +141,7 @@ class ClienteSerializer(serializers.ModelSerializer[Cliente]):
             "empresa",
             "representantes",
         ]
-        read_only_fields = ["id", "folio", "created_at", "updated_at"]
+        read_only_fields = ["id", "codigo", "created_at", "updated_at"]
 
     @extend_schema_field(RepresentanteSerializer(many=True))
     def get_representantes(self, cliente: Cliente) -> list[Any]:

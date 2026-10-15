@@ -107,58 +107,6 @@ class Oficina(TimestampedModel):
         return ", ".join(part for part in parts if part)
 
 
-class AsignacionDomicilio(TimestampedModel):
-    """A company's registered tax domicile at an office, for a period.
-
-    Deprecated: a domicile is occupied by a contracted service, so occupancy
-    will be read from the contract (HU-60) and this model removed then.
-    Nothing writes to it.
-
-    ASSUMPTION: pending validation with Easy Office. Nothing prevents a
-    company from holding two overlapping active domiciles. That is almost
-    certainly invalid in practice, but it is a business rule and RN-001 is
-    expected to state it before it is enforced here.
-    """
-
-    empresa = models.ForeignKey(
-        "clientes.Empresa",
-        verbose_name=_("empresa"),
-        on_delete=models.PROTECT,
-        related_name="domicilios",
-    )
-    oficina = models.ForeignKey(
-        Oficina,
-        verbose_name=_("oficina"),
-        on_delete=models.PROTECT,
-        related_name="asignaciones",
-    )
-    vigente_desde = models.DateField(_("vigente desde"))
-    vigente_hasta = models.DateField(
-        _("vigente hasta"),
-        null=True,
-        blank=True,
-        help_text=_("Empty means the domicile has no end date."),
-    )
-    activa = models.BooleanField(_("activa"), default=True)
-
-    class Meta:
-        verbose_name = _("asignación de domicilio")
-        verbose_name_plural = _("asignaciones de domicilio")
-        ordering = ["-vigente_desde"]
-        constraints = [
-            models.CheckConstraint(
-                condition=(
-                    Q(vigente_hasta__isnull=True)
-                    | Q(vigente_hasta__gt=F("vigente_desde"))
-                ),
-                name="domicilio_periodo_valido",
-            ),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.empresa} @ {self.oficina}"
-
-
 VALIDADORES_DOCUMENTO = [
     FileExtensionValidator(list(FILE_SIGNATURES)),
     validate_max_file_size,

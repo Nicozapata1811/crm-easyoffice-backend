@@ -56,6 +56,7 @@ integrations/   SignatureService, PaymentService + implementations
 migracion/      Excel → PostgreSQL import pipeline
 panel/          dashboard indicators and their Excel export (no models)
 ventas/         price list, sales, payment attempts, payments, webhook log
+contratos/      contract, contracted services, folio counter, terms
 ```
 
 **Rules for the boundaries**
@@ -208,7 +209,11 @@ Never import a provider SDK outside `integrations/`.
   - RUTs are normalised with `core.validators.normalize_rut` before validation.
   - A RUT that is already a client is rejected (HU-52). A Persona or Empresa on
     record that is not yet a client is linked instead.
-  - `Cliente.folio` (`CLI-000001`) is assigned in `save()`.
+  - `Cliente.codigo` (`CLI-000001`) is an internal id assigned in `save()`.
+    It was `folio` until the folio moved to the contract (RN-38). Client
+    payloads (`/api/clientes/`, `me`, `/api/ventas/`) still carry `folio` as
+    a deprecated alias of `codigo` for one release; drop it once the frontend
+    reads `codigo`.
   - `Persona` carries the optional contract data (`nacionalidad`,
     `estado_civil` from the `EstadoCivil` choices, `profesion`, `domicilio`,
     `comuna`, `region`); `RepresentanteLegal` carries the personería
@@ -231,8 +236,9 @@ Never import a provider SDK outside `integrations/`.
     Ejecutivo wholesale. Uploads go through
     `inmuebles.services.guardar_documento_identidad` (JPG/PNG/PDF checked by
     content, 5 MB).
-  - `AsignacionDomicilio` is deprecated: occupancy will come from contracted
-    services (HU-60).
+  - Who is domiciled where comes from contracts:
+    `contratos.services.ocupantes(inmueble, fecha)`. `AsignacionDomicilio` was
+    removed (HU-60).
 - **Issuer configuration** (`configuracion/`, HU-65): `ConfigEmpresa` (one
   row, enforced by a constraint), `Marca` (EASY OFFICE, INOFFICE) and
   `CuentaPago` (`texto_contrato` is what the contract prints). Seeded with
@@ -240,6 +246,30 @@ Never import a provider SDK outside `integrations/`.
   never committed. Nothing is deleted, only deactivated. Read it through
   `configuracion.services` (`obtener_config_empresa`, `marcas_activas`,
   `cuenta_pago_para`). That both brands are one company is an assumption.
+- **Contracts** (`contratos/`, HU-60): `Contrato` is one row of Easy Office's
+  spreadsheet: folio, brand, client, signer, payment account, term and
+  notice contact, grouping `ServicioContratado` lines (name, description,
+  price and VAT flag copied, cycle, optional property; no fixed limit,
+  TA-12). Create them only through `contratos.services.crear_contrato`.
+  - Folio (RN-38): `{branch}-{correlative}-{year}`, e.g. `LF-0007-2026`. The
+    branch comes from the first located service, or is given explicitly when
+    none gives one. The correlative is shared by branches and brands and
+    restarts yearly; `contratos.folio` takes it from the year's
+    `CorrelativoFolio` row under `select_for_update`, inside the contract's
+    transaction (gapless, never repeated; a unique constraint backs it up).
+    Width is `CONTRATO_FOLIO_ANCHO` (4) because of the 2-digit historical
+    folios (TA-03).
+  - Expiry is start + duration − 1 day (RN-37), computed; durations come from
+    `DuracionContrato` (1, 3, 4, 6, 12).
+  - API: `/api/contratos/` list, record and create (`contratos.add_contrato`;
+    no PATCH or DELETE), filters `buscar`, `estado`, `marca`, `sucursal`,
+    `anio`; `GET /api/contratos/opciones/` lists brands, accounts, terms,
+    cycles, branches and services for the form. Nobody holds
+    `delete_contrato`.
+  - Tests that need committed rows (the folio concurrency tests) keep the
+    plain `django_db` marker and commit from another connection, cleaning up
+    their own rows: a transactional test flushes the seeded catalogue, and
+    with `--reuse-db` every later run would start without it.
 - **Dashboard** (`panel/`): `GET /api/panel/indicadores/` and `.../exportar/`
   (`.xlsx` via openpyxl), both requiring `core.view_dashboard`.
   - Client counts come from `clientes.services.contar_clientes`.

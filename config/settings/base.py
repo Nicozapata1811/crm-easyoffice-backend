@@ -110,6 +110,7 @@ LOCAL_APPS = [
     "crm_easyoffice.migracion",
     "crm_easyoffice.panel",
     "crm_easyoffice.ventas",
+    "crm_easyoffice.contratos",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -425,3 +426,10 @@ PAYMENT_WEBHOOK_BASE_URL = env("PAYMENT_WEBHOOK_BASE_URL", default="")
 # empty (the "tunnel" service in docker-compose.local.yml).
 PAYMENT_TUNNEL_METRICS_URL = env("PAYMENT_TUNNEL_METRICS_URL", default="")
 PORTAL_BASE_URL = env("PORTAL_BASE_URL", default="http://localhost:5173")
+
+# Contracts (HU-60)
+# ------------------------------------------------------------------------------
+# Zero-padding of the folio correlative: LF-0007-2026 with 4. A setting rather
+# than a literal because older folios use 2 digits and their treatment is
+# still open (TA-03). Changing it never rewrites issued folios.
+CONTRATO_FOLIO_ANCHO = env.int("CONTRATO_FOLIO_ANCHO", default=4)

@@ -13,6 +13,7 @@ from .models import Cliente
 from .models import CuentaCliente
 from .models import Empresa
 from .models import Persona
+from .models import RepresentanteLegal
 from .models import TipoCliente
 
 if TYPE_CHECKING:
@@ -103,3 +104,23 @@ def registrar_cuenta_cliente(
         )
         # TODO(RF-15): record the registration in the audit log (HU-30).
         return CuentaCliente.objects.create(user=user, cliente=cliente)
+
+
+def representa_a(
+    representante: RepresentanteLegal,
+    empresa_id: int,
+    fecha: date,
+) -> bool:
+    """Whether ``representante`` may act for the company on ``fecha``.
+
+    The representation must belong to that company, be active, and cover the
+    date (vigente_hasta inclusive).
+    """
+    return (
+        representante.empresa_id == empresa_id
+        and representante.activo
+        and representante.vigente_desde <= fecha
+        and (
+            representante.vigente_hasta is None or representante.vigente_hasta >= fecha
+        )
+    )

@@ -21,6 +21,7 @@ from .models import CicloPago
 from .models import ItemVenta
 from .models import OrdenPago
 from .models import Pago
+from .models import Servicio
 from .models import Venta
 
 if TYPE_CHECKING:
@@ -31,7 +32,6 @@ if TYPE_CHECKING:
     from crm_easyoffice.clientes.models import Cliente
     from crm_easyoffice.integrations.payment.base import PaymentResult
 
-    from .models import Servicio
 
 logger = logging.getLogger(__name__)
 
@@ -230,3 +230,8 @@ def _registrar_pago(orden: OrdenPago, resultado: PaymentResult) -> None:
 def ciclos_pago_activos() -> QuerySet[CicloPago]:
     """Payment cycles a contracted service may use, in display order."""
     return CicloPago.objects.filter(activo=True)
+
+
+def servicios_contratables() -> QuerySet[Servicio]:
+    """Active services an executive may put in a contract, portal or not."""
+    return Servicio.objects.filter(activo=True).select_related("ciclo_pago_default")
