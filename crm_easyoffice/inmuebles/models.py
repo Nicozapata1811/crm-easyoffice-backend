@@ -93,6 +93,7 @@ class Oficina(TimestampedModel):
                 condition=Q(tipo=TipoInmueble.OFICINA)
                 | Q(codigo_sucursal__isnull=True),
                 name="inmueble_bodega_sin_codigo",
+                violation_error_message=_("A warehouse has no branch code."),
             ),
         ]
 
@@ -265,6 +266,10 @@ class Autorizante(TimestampedModel):
                     | Q(persona__isnull=True, empresa__isnull=False)
                 ),
                 name="autorizante_exactamente_un_propietario",
+                violation_error_message=_(
+                    "Choose the owner: either a person, or a company with its "
+                    "representative, not both.",
+                ),
             ),
             models.CheckConstraint(
                 condition=(
@@ -272,6 +277,10 @@ class Autorizante(TimestampedModel):
                     | Q(empresa__isnull=False, representante__isnull=False)
                 ),
                 name="autorizante_representante_solo_con_empresa",
+                violation_error_message=_(
+                    "A company owner needs its representative; a person owner "
+                    "has none.",
+                ),
             ),
             models.CheckConstraint(
                 condition=(
@@ -279,6 +288,9 @@ class Autorizante(TimestampedModel):
                     | Q(vigente_hasta__gt=F("vigente_desde"))
                 ),
                 name="autorizante_periodo_valido",
+                violation_error_message=_(
+                    "'Vigente hasta' must be after 'vigente desde'.",
+                ),
             ),
         ]
 

@@ -60,7 +60,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='oficina',
-            constraint=models.CheckConstraint(condition=models.Q(('tipo', 'oficina'), ('codigo_sucursal__isnull', True), _connector='OR'), name='inmueble_bodega_sin_codigo'),
+            constraint=models.CheckConstraint(condition=models.Q(('tipo', 'oficina'), ('codigo_sucursal__isnull', True), _connector='OR'), name='inmueble_bodega_sin_codigo', violation_error_message='A warehouse has no branch code.'),
         ),
         migrations.AddField(
             model_name='autorizante',
@@ -84,14 +84,14 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='autorizante',
-            constraint=models.CheckConstraint(condition=models.Q(models.Q(('empresa__isnull', True), ('persona__isnull', False)), models.Q(('empresa__isnull', False), ('persona__isnull', True)), _connector='OR'), name='autorizante_exactamente_un_propietario'),
+            constraint=models.CheckConstraint(condition=models.Q(models.Q(('empresa__isnull', True), ('persona__isnull', False)), models.Q(('empresa__isnull', False), ('persona__isnull', True)), _connector='OR'), name='autorizante_exactamente_un_propietario', violation_error_message='Choose the owner: either a person, or a company with its representative, not both.'),
         ),
         migrations.AddConstraint(
             model_name='autorizante',
-            constraint=models.CheckConstraint(condition=models.Q(models.Q(('persona__isnull', False), ('representante__isnull', True)), models.Q(('empresa__isnull', False), ('representante__isnull', False)), _connector='OR'), name='autorizante_representante_solo_con_empresa'),
+            constraint=models.CheckConstraint(condition=models.Q(models.Q(('persona__isnull', False), ('representante__isnull', True)), models.Q(('empresa__isnull', False), ('representante__isnull', False)), _connector='OR'), name='autorizante_representante_solo_con_empresa', violation_error_message='A company owner needs its representative; a person owner has none.'),
         ),
         migrations.AddConstraint(
             model_name='autorizante',
-            constraint=models.CheckConstraint(condition=models.Q(('vigente_hasta__isnull', True), ('vigente_hasta__gt', models.F('vigente_desde')), _connector='OR'), name='autorizante_periodo_valido'),
+            constraint=models.CheckConstraint(condition=models.Q(('vigente_hasta__isnull', True), ('vigente_hasta__gt', models.F('vigente_desde')), _connector='OR'), name='autorizante_periodo_valido', violation_error_message="'Vigente hasta' must be after 'vigente desde'."),
         ),
     ]

@@ -64,8 +64,22 @@ class AutorizanteAdmin(admin.ModelAdmin):
     form = AutorizanteForm
     list_display = ["__str__", "inmueble", "vigente_desde", "vigente_hasta", "activo"]
     list_filter = ["activo", "inmueble"]
-    raw_id_fields = ["persona", "empresa", "representante"]
+    autocomplete_fields = ["inmueble", "persona", "empresa", "representante"]
     readonly_fields = ["documento_actual"]
+    fieldsets = [
+        (None, {"fields": ["inmueble", "vigente_desde", "vigente_hasta", "activo"]}),
+        (
+            _("Propietario"),
+            {
+                "description": _(
+                    "Either a person, or a company with its legal representative. "
+                    "Search by RUT or name.",
+                ),
+                "fields": ["persona", "empresa", "representante"],
+            },
+        ),
+        (_("Cédula de identidad"), {"fields": ["nuevo_documento", "documento_actual"]}),
+    ]
 
     @admin.display(description=_("cédula registrada"))
     def documento_actual(self, obj: Autorizante) -> str:
