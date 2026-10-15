@@ -44,7 +44,9 @@ class ConfigEmpresa(TimestampedModel):
         related_name="+",
     )
     fecha_personeria = models.DateField(
-        _("fecha de la personería"), null=True, blank=True,
+        _("fecha de la personería"),
+        null=True,
+        blank=True,
     )
     registro_personeria = models.CharField(
         _("registro de la personería"),
@@ -61,7 +63,8 @@ class ConfigEmpresa(TimestampedModel):
         constraints = [
             models.UniqueConstraint(fields=["unico"], name="config_empresa_unica"),
             models.CheckConstraint(
-                condition=Q(unico=True), name="config_empresa_unico_true",
+                condition=Q(unico=True),
+                name="config_empresa_unico_true",
             ),
         ]
 
