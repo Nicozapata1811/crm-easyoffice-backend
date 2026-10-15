@@ -48,7 +48,7 @@ explicit boundaries:
 ```
 core/           users, roles, permissions, audit log
 clientes/       persona, empresa, representante legal
-inmuebles/      oficinas, rol de avalúo, domicile assignments
+inmuebles/      properties (oficina / bodega), rol de avalúo, autorizantes
 tramites/       tipo de trámite (configuration), trámite, state machine
 documentos/     plantillas (versioned), documento generation, hashing
 integrations/   SignatureService, PaymentService + implementations
@@ -210,6 +210,24 @@ Never import a provider SDK outside `integrations/`.
   - `Cliente.folio` (`CLI-000001`) is assigned in `save()`.
   - The final client fields (MD-01) are still pending; `seed_demo_clientes`
     loads fictitious data meanwhile.
+- **Properties** (`inmuebles/`, HU-66): `Oficina` is any property, `tipo`
+  `oficina` or `bodega`. Branch offices carry `codigo_sucursal` (LF, VL, SA,
+  seeded with placeholder address and rol; fill them in the admin), which
+  heads the contract folio. `Autorizante` is the owner who authorises a
+  property's use (RN-43): a `Persona`, or an `Empresa` with its
+  `RepresentanteLegal`, for a period.
+  - The identity card is sensitive: `core.storage.PrivateFileSystemStorage`
+    keeps it under `PRIVATE_MEDIA_ROOT` (`DJANGO_PRIVATE_MEDIA_ROOT`), outside
+    `MEDIA_ROOT` and in a production volume nginx does not mount. It has no
+    URL; `GET /api/inmuebles/autorizantes/{id}/documento-identidad/` serves it
+    as a no-store attachment to holders of
+    `inmuebles.descargar_documento_identidad` (Administrador only). The
+    codename deliberately avoids `view_`, which the core role seed grants
+    Ejecutivo wholesale. Uploads go through
+    `inmuebles.services.guardar_documento_identidad` (JPG/PNG/PDF checked by
+    content, 5 MB).
+  - `AsignacionDomicilio` is deprecated: occupancy will come from contracted
+    services (HU-60).
 - **Dashboard** (`panel/`): `GET /api/panel/indicadores/` and `.../exportar/`
   (`.xlsx` via openpyxl), both requiring `core.view_dashboard`.
   - Client counts come from `clientes.services.contar_clientes`.

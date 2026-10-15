@@ -189,6 +189,12 @@ STATICFILES_FINDERS = [
 MEDIA_ROOT = str(APPS_DIR / "media")
 # https://docs.djangoproject.com/en/dev/ref/settings/#media-url
 MEDIA_URL = "/media/"
+# Sensitive uploads (identity cards). Outside MEDIA_ROOT and never served by
+# a web server: see crm_easyoffice.core.storage.PrivateFileSystemStorage.
+PRIVATE_MEDIA_ROOT = env.str(
+    "DJANGO_PRIVATE_MEDIA_ROOT",
+    default=str(BASE_DIR / "private_media"),
+)
 
 # TEMPLATES
 # ------------------------------------------------------------------------------

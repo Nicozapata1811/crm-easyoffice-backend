@@ -20,6 +20,12 @@ DJANGO_SERVER_EMAIL=
 # ------------------------------------------------------------------------------
 DJANGO_ACCOUNT_ALLOW_REGISTRATION=True
 
+# Private uploads
+# ------------------------------------------------------------------------------
+# Identity cards. Must be the private_media volume in docker-compose.production.yml,
+# which nginx does not mount.
+DJANGO_PRIVATE_MEDIA_ROOT=/app/private_media
+
 # Gunicorn
 # ------------------------------------------------------------------------------
 WEB_CONCURRENCY=4
