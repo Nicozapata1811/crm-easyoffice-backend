@@ -15,7 +15,7 @@ class SinEliminarAdmin(admin.ModelAdmin):
 @admin.register(ConfigEmpresa)
 class ConfigEmpresaAdmin(SinEliminarAdmin):
     list_display = ["razon_social", "rut"]
-    raw_id_fields = ["representante"]
+    autocomplete_fields = ["representante"]
 
     def has_add_permission(self, request) -> bool:
         return (
