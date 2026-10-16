@@ -108,6 +108,74 @@ class Servicio(TimestampedModel):
         return self.nombre
 
 
+class PlanServicio(TimestampedModel):
+    """A fixed term at a fixed price in which a service is sold online.
+
+    Domicilio tributario is sold as a yearly or a half-yearly plan, each with
+    its own price; the advanced electronic signature of the contract is
+    included in some plans and charged as the firma service in the others.
+
+    The plan's price is a list price like ``Servicio.precio_base`` (RN-44):
+    nobody gets a special one. The backoffice may still contract a service
+    for any duration; plans only bound what the portal offers.
+
+    ASSUMPTION: pending validation with Easy Office. Plans and prices come
+    from Easy Office's public website (15-10-2026) and are unconfirmed.
+    """
+
+    servicio = models.ForeignKey(
+        Servicio,
+        verbose_name=_("servicio"),
+        on_delete=models.PROTECT,
+        related_name="planes",
+    )
+    codigo = models.SlugField(_("código"), max_length=30)
+    nombre = models.CharField(_("nombre"), max_length=60)
+    duracion_meses = models.PositiveSmallIntegerField(_("duración (meses)"))
+    ciclo_pago = models.ForeignKey(
+        CicloPago,
+        verbose_name=_("ciclo de pago"),
+        on_delete=models.PROTECT,
+        related_name="planes",
+    )
+    precio = models.DecimalField(_("precio (CLP)"), **MONTO)
+    precio_incluye_iva = models.BooleanField(_("precio incluye IVA"), default=True)
+    precio_confirmado = models.BooleanField(_("precio confirmado"), default=False)
+    firma_incluida = models.BooleanField(
+        _("firma electrónica incluida"),
+        default=False,
+        help_text=_(
+            "When unchecked, the advanced electronic signature is charged on "
+            "top at the firma service's price.",
+        ),
+    )
+    se_vende_en_portal = models.BooleanField(_("se vende en el portal"), default=True)
+    orden = models.PositiveSmallIntegerField(_("orden"), default=0)
+    activo = models.BooleanField(_("activo"), default=True)
+
+    class Meta:
+        verbose_name = _("plan de servicio")
+        verbose_name_plural = _("planes de servicio")
+        ordering = ["servicio", "orden", "duracion_meses"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["servicio", "codigo"],
+                name="plan_servicio_codigo_unico",
+            ),
+            models.CheckConstraint(
+                condition=Q(precio__gte=0),
+                name="plan_servicio_precio_no_negativo",
+            ),
+            models.CheckConstraint(
+                condition=Q(duracion_meses__gte=1),
+                name="plan_servicio_duracion_positiva",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.servicio} · {self.nombre}"
+
+
 def format_folio_venta(pk: int) -> str:
     return f"VEN-{pk:06d}"
 
