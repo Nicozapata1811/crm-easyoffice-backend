@@ -43,21 +43,28 @@ if TYPE_CHECKING:
     from crm_easyoffice.inmuebles.models import Oficina
     from crm_easyoffice.users.models import User
     from crm_easyoffice.ventas.models import CicloPago
+    from crm_easyoffice.ventas.models import PlanServicio
     from crm_easyoffice.ventas.models import Servicio
 
 
 @dataclass(frozen=True)
 class LineaContrato:
-    """A service to contract, as the executive chose it.
+    """A service to contract, as the executive or the client chose it.
 
     ``ciclo_pago`` defaults to the service's cycle. ``precio`` is given only
     for a service without a fixed price; otherwise the list price is copied.
+    A ``plan`` (portal) sets both the price and the cycle.
     """
 
     servicio: Servicio
     ciclo_pago: CicloPago | None = None
     inmueble: Oficina | None = None
     precio: Decimal | None = None
+    plan: PlanServicio | None = None
+
+
+class ContratoNoEditableError(Exception):
+    """Only a draft contract can be changed, activated or annulled this way."""
 
 
 def calcular_vencimiento(inicio: date, meses: int) -> date:
@@ -128,7 +135,11 @@ def _servicios(lineas: Sequence[LineaContrato]) -> list[ServicioContratado]:
                     % {"servicio": servicio},
                 },
             )
-        ciclo = linea.ciclo_pago or servicio.ciclo_pago_default
+        if linea.plan is not None:
+            _validar_plan(linea)
+            ciclo = linea.plan.ciclo_pago
+        else:
+            ciclo = linea.ciclo_pago or servicio.ciclo_pago_default
         if ciclo is None:
             raise ValidationError(
                 {
@@ -144,13 +155,44 @@ def _servicios(lineas: Sequence[LineaContrato]) -> list[ServicioContratado]:
                 servicio=servicio,
                 nombre=servicio.nombre,
                 descripcion=servicio.descripcion,
-                precio=_precio(servicio, linea.precio),
-                precio_incluye_iva=servicio.precio_incluye_iva,
+                precio=(
+                    linea.plan.precio
+                    if linea.plan is not None
+                    else _precio(servicio, linea.precio)
+                ),
+                precio_incluye_iva=(
+                    linea.plan.precio_incluye_iva
+                    if linea.plan is not None
+                    else servicio.precio_incluye_iva
+                ),
                 ciclo_pago=ciclo,
                 inmueble=linea.inmueble,
             ),
         )
     return copiados
+
+
+def _validar_plan(linea: LineaContrato) -> None:
+    """A plan sets price and cycle; it must be its service's, and not combined.
+
+    RN-44 still holds: a plan's price is a list price, the same for everyone.
+    """
+    plan = linea.plan
+    if plan.servicio_id != linea.servicio.pk:
+        raise ValidationError({"servicios": _("The plan belongs to another service.")})
+    if not plan.activo:
+        raise ValidationError({"servicios": _("The plan is not active.")})
+    if linea.precio is not None or linea.ciclo_pago is not None:
+        raise ValidationError(
+            {"servicios": _("A plan sets its own price and payment cycle.")},
+        )
+
+
+def _validar_duracion_de_planes(lineas: Sequence[LineaContrato], meses: int) -> None:
+    if any(linea.plan and linea.plan.duracion_meses != meses for linea in lineas):
+        raise ValidationError(
+            {"duracion_meses": _("The duration must be the plan's.")},
+        )
 
 
 def _precio(servicio: Servicio, acordado: Decimal | None) -> Decimal:
@@ -194,8 +236,12 @@ def crear_contrato(  # noqa: PLR0913 - mirrors the contract form
     renovacion_automatica: bool = True,
     dias_aviso_termino: int = 30,
     fecha_emision: date | None = None,
+    borrador: bool = False,
 ) -> Contrato:
     """Record a contract with its services and give it the next folio.
+
+    ``borrador`` records a portal request that is not in force until its
+    case is signed (see ``activar_contrato``).
 
     Args:
         cliente: The contracting client, a person or a company.
@@ -227,6 +273,7 @@ def crear_contrato(  # noqa: PLR0913 - mirrors the contract form
     except ConfiguracionIncompletaError as error:
         raise ValidationError({"cuenta_pago": str(error)}) from error
     _validar_representante(cliente, representante, fecha_inicio)
+    _validar_duracion_de_planes(lineas, duracion_meses)
     servicios = _servicios(lineas)
     codigo = _codigo_sucursal(lineas, codigo_sucursal)
     anio = (fecha_emision or timezone.localdate()).year
@@ -250,6 +297,7 @@ def crear_contrato(  # noqa: PLR0913 - mirrors the contract form
             email_aviso=email_aviso,
             movil_aviso=movil_aviso,
             ejecutivo_responsable=ejecutivo,
+            estado=Contrato.Estado.BORRADOR if borrador else Contrato.Estado.VIGENTE,
         )
         contrato.full_clean(validate_unique=False, validate_constraints=False)
         contrato.save()
@@ -257,6 +305,87 @@ def crear_contrato(  # noqa: PLR0913 - mirrors the contract form
             servicio.contrato = contrato
         ServicioContratado.objects.bulk_create(servicios)
     # TODO(RF-15): record the contract in the audit log (HU-30).
+    return contrato
+
+
+def _borrador_bloqueado(contrato: Contrato) -> Contrato:
+    bloqueado = Contrato.objects.select_for_update().get(pk=contrato.pk)
+    if bloqueado.estado != Contrato.Estado.BORRADOR:
+        raise ContratoNoEditableError
+    return bloqueado
+
+
+def actualizar_borrador(  # noqa: PLR0913 - mirrors the portal form
+    contrato: Contrato,
+    *,
+    lineas: Sequence[LineaContrato],
+    fecha_inicio: date,
+    duracion_meses: int,
+    representante: RepresentanteLegal | None,
+    email_aviso: str,
+    movil_aviso: str,
+) -> Contrato:
+    """Change a draft before it is signed, keeping its folio.
+
+    ASSUMPTION: pending validation with Easy Office. The branch heads the
+    folio, so it cannot change: a client who wants another branch starts a
+    new request.
+
+    Raises:
+        ContratoNoEditableError: The contract is no longer a draft.
+        django.core.exceptions.ValidationError: Keyed by the offending field.
+    """
+    if not DuracionContrato.objects.filter(meses=duracion_meses, activa=True).exists():
+        raise ValidationError({"duracion_meses": _("Not an offered duration.")})
+    _validar_representante(contrato.cliente, representante, fecha_inicio)
+    _validar_duracion_de_planes(lineas, duracion_meses)
+    servicios = _servicios(lineas)
+    if _codigo_sucursal(lineas, contrato.codigo_sucursal) != contrato.codigo_sucursal:
+        raise ValidationError({"codigo_sucursal": _("The branch cannot change.")})
+
+    with transaction.atomic():
+        contrato = _borrador_bloqueado(contrato)
+        contrato.fecha_inicio = fecha_inicio
+        contrato.duracion_meses = duracion_meses
+        contrato.fecha_vencimiento = calcular_vencimiento(fecha_inicio, duracion_meses)
+        contrato.representante = representante
+        contrato.email_aviso = email_aviso
+        contrato.movil_aviso = movil_aviso
+        contrato.full_clean(validate_unique=False, validate_constraints=False)
+        contrato.save()
+        contrato.servicios.all().delete()
+        for servicio in servicios:
+            servicio.contrato = contrato
+        ServicioContratado.objects.bulk_create(servicios)
+    # TODO(RF-15): record the change in the audit log (HU-30).
+    return contrato
+
+
+def activar_contrato(contrato: Contrato) -> Contrato:
+    """Put a signed draft in force.
+
+    Raises:
+        ContratoNoEditableError: The contract is not a draft.
+    """
+    with transaction.atomic():
+        contrato = _borrador_bloqueado(contrato)
+        contrato.estado = Contrato.Estado.VIGENTE
+        contrato.save(update_fields=["estado", "updated_at"])
+    # TODO(RF-15): record the change in the audit log (HU-30).
+    return contrato
+
+
+def anular_borrador(contrato: Contrato) -> Contrato:
+    """Annul a draft that will not be signed. Its folio is not reused.
+
+    Raises:
+        ContratoNoEditableError: The contract is not a draft.
+    """
+    with transaction.atomic():
+        contrato = _borrador_bloqueado(contrato)
+        contrato.estado = Contrato.Estado.ANULADO
+        contrato.save(update_fields=["estado", "updated_at"])
+    # TODO(RF-15): record the change in the audit log (HU-30).
     return contrato
 
 

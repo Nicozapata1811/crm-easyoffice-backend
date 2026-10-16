@@ -60,12 +60,20 @@ class Contrato(TimestampedModel):
     contratos.services.crear_contrato.
 
     ASSUMPTION: pending validation with Easy Office. The states are a minimum
-    (vigente, terminado, anulado); their transitions are not modelled. A
-    renewal is a new contract pointing at the previous one (RN-10, proposed);
-    whether it keeps the folio is open.
+    (borrador, vigente, terminado, anulado); their transitions are not
+    modelled beyond borrador. A renewal is a new contract pointing at the
+    previous one (RN-10, proposed); whether it keeps the folio is open.
+
+    A contract requested in the portal is a borrador, with its folio, until
+    its case is signed: a draft never occupies a domicile.
+
+    ASSUMPTION: pending validation with Easy Office. A draft takes its folio
+    when it is created, so an abandoned draft keeps one (it is annulled, the
+    row stays and the sequence has no gap).
     """
 
     class Estado(models.TextChoices):
+        BORRADOR = "borrador", _("borrador")
         VIGENTE = "vigente", _("vigente")
         TERMINADO = "terminado", _("terminado")
         ANULADO = "anulado", _("anulado")

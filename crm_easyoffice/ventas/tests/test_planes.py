@@ -20,6 +20,7 @@ from crm_easyoffice.ventas.services import anular_venta
 from crm_easyoffice.ventas.services import crear_venta
 from crm_easyoffice.ventas.services import lineas_de_plan
 from crm_easyoffice.ventas.services import planes_en_portal
+from crm_easyoffice.ventas.services import precio_firma
 from crm_easyoffice.ventas.services import venta_pagada
 from crm_easyoffice.ventas.tests.factories import OrdenPagoFactory
 from crm_easyoffice.ventas.tests.factories import VentaFactory
@@ -27,7 +28,7 @@ from crm_easyoffice.ventas.tests.factories import VentaFactory
 pytestmark = pytest.mark.django_db
 
 seed = importlib.import_module(
-    "crm_easyoffice.ventas.migrations.0012_seed_planes_domicilio"
+    "crm_easyoffice.ventas.migrations.0012_seed_planes_domicilio",
 )
 
 
@@ -51,9 +52,7 @@ class TestSeed:
         assert not any(p.precio_confirmado for p in planes)
 
     def test_seed_charges_the_signature_at_the_website_price(self):
-        assert Servicio.objects.get(
-            codigo="firma-electronica-avanzada"
-        ).precio_base == (Decimal(5000))
+        assert precio_firma() == Decimal(5000)
 
     def test_seed_is_idempotent_and_keeps_admin_edits(self):
         anual = plan("anual")
@@ -72,9 +71,7 @@ class TestSeed:
 
         seed.seed(apps, None)
 
-        assert Servicio.objects.get(
-            codigo="firma-electronica-avanzada"
-        ).precio_base == (Decimal(5900))
+        assert precio_firma() == Decimal(5900)
 
 
 class TestPlanes:
@@ -137,7 +134,7 @@ class TestLineasDePlan:
 
     def test_without_a_signature_service_the_plan_cannot_be_sold(self):
         Servicio.objects.filter(codigo="firma-electronica-avanzada").update(
-            activo=False
+            activo=False,
         )
 
         with pytest.raises(PlanNoDisponibleError):
