@@ -4,6 +4,7 @@ from .models import CicloPago
 from .models import EventoPago
 from .models import OrdenPago
 from .models import Pago
+from .models import PlanServicio
 from .models import Servicio
 from .models import Venta
 
@@ -12,6 +13,24 @@ from .models import Venta
 class CicloPagoAdmin(admin.ModelAdmin):
     list_display = ["nombre", "codigo", "meses", "orden", "activo"]
     list_filter = ["activo"]
+
+
+class PlanServicioInline(admin.TabularInline):
+    model = PlanServicio
+    extra = 0
+    fields = [
+        "codigo",
+        "nombre",
+        "duracion_meses",
+        "ciclo_pago",
+        "precio",
+        "precio_incluye_iva",
+        "precio_confirmado",
+        "firma_incluida",
+        "se_vende_en_portal",
+        "orden",
+        "activo",
+    ]
 
 
 @admin.register(Servicio)
@@ -36,6 +55,7 @@ class ServicioAdmin(admin.ModelAdmin):
         "precio_confirmado",
     ]
     search_fields = ["codigo", "nombre"]
+    inlines = [PlanServicioInline]
 
 
 class SoloLecturaAdmin(admin.ModelAdmin):

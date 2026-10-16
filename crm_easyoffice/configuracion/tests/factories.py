@@ -6,6 +6,8 @@ from factory import Sequence
 from factory import SubFactory
 from factory.django import DjangoModelFactory
 
+from crm_easyoffice.clientes.tests.factories import PersonaFactory
+from crm_easyoffice.configuracion.models import ConfigEmpresa
 from crm_easyoffice.configuracion.models import CuentaPago
 from crm_easyoffice.configuracion.models import Marca
 
@@ -28,3 +30,11 @@ class MarcaFactory(DjangoModelFactory[Marca]):
 
     class Meta:
         model = Marca
+
+
+def preparar_config_contrato() -> ConfigEmpresa:
+    """Give Easy Office's seeded record a fictitious, complete representative."""
+    config = ConfigEmpresa.objects.get()
+    config.representante = PersonaFactory.create(con_datos_civiles=True)
+    config.save()
+    return config

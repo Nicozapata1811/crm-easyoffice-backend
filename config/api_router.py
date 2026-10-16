@@ -4,6 +4,7 @@ from rest_framework.routers import SimpleRouter
 
 from crm_easyoffice.clientes.api.views import ClienteViewSet
 from crm_easyoffice.contratos.api.views import ContratoViewSet
+from crm_easyoffice.tramites.api.views import TramiteViewSet
 from crm_easyoffice.users.api.views import UserViewSet
 from crm_easyoffice.ventas.api.views import VentaViewSet
 
@@ -13,6 +14,7 @@ router.register("users", UserViewSet)
 router.register("clientes", ClienteViewSet)
 router.register("ventas", VentaViewSet)
 router.register("contratos", ContratoViewSet)
+router.register("tramites", TramiteViewSet)
 
 
 app_name = "api"

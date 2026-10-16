@@ -51,6 +51,12 @@ services:
     volumes:
       - crm_easyoffice_local_redis_data:/data
 
+  # Converts the generated contracts from Word to PDF (LibreOffice). Reached
+  # only by the Celery worker on the compose network; no published port.
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:8.37.0-libreoffice
+    container_name: crm_easyoffice_local_gotenberg
+
   celeryworker:
     <<: *django
     image: crm_easyoffice_local_celeryworker
@@ -59,6 +65,7 @@ services:
       - redis
       - postgres
       - mailpit
+      - gotenberg
     ports: []
     command: /start-celeryworker
 

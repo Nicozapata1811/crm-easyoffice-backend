@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import struct
+import zlib
 from datetime import date
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -16,6 +18,7 @@ from crm_easyoffice.clientes.tests.factories import PersonaFactory
 from crm_easyoffice.inmuebles.models import Autorizante
 from crm_easyoffice.inmuebles.models import Oficina
 from crm_easyoffice.inmuebles.models import TipoInmueble
+from crm_easyoffice.inmuebles.services import guardar_documento_identidad
 
 # The smallest content each validator accepts; not real images.
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32
@@ -63,3 +66,67 @@ class AutorizanteFactory(DjangoModelFactory[Autorizante]):
 
     class Meta:
         model = Autorizante
+
+
+def png_sintetico(ancho: int = 64, alto: int = 40, tono: int = 200) -> bytes:
+    """A real, valid grey PNG (not a card): documents can embed and size it."""
+    fila = b"\x00" + bytes([tono]) * ancho
+    crudo = fila * alto
+
+    def bloque(tipo: bytes, datos: bytes) -> bytes:
+        cuerpo = tipo + datos
+        return (
+            struct.pack(">I", len(datos))
+            + cuerpo
+            + struct.pack(">I", zlib.crc32(cuerpo))
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + bloque(b"IHDR", struct.pack(">IIBBBBB", ancho, alto, 8, 0, 0, 0, 0))
+        + bloque(b"IDAT", zlib.compress(crudo))
+        + bloque(b"IEND", b"")
+    )
+
+
+def preparar_sucursal_domicilio(
+    codigo: str = "LF",
+    desde: date = date(2026, 1, 1),
+) -> Autorizante:
+    """Complete a seeded branch so PLT-01 can be issued for it.
+
+    A fictitious address, rol and SII unit, and a fictitious owner company
+    whose representative has every field the contract prints and both sides
+    of a synthetic card.
+    """
+    oficina = Oficina.objects.get(codigo_sucursal=codigo)
+    oficina.calle = "Avenida de Ejemplo"
+    oficina.numero = "100"
+    oficina.unidad = "Oficina 1"
+    oficina.rol_avaluo = f"0000-{codigo}"
+    oficina.unidad_sii = f"UNIDAD DE EJEMPLO {codigo}"
+    oficina.municipalidad = oficina.comuna
+    oficina.save()
+
+    empresa = EmpresaFactory.create(razon_social="Inmobiliaria de Ejemplo Ltda.")
+    representante = RepresentanteLegal.objects.create(
+        persona=PersonaFactory.create(con_datos_civiles=True),
+        empresa=empresa,
+        vigente_desde=desde,
+    )
+    autorizante = Autorizante.objects.create(
+        inmueble=oficina,
+        empresa=empresa,
+        representante=representante,
+        vigente_desde=desde,
+    )
+    guardar_documento_identidad(
+        autorizante,
+        archivo("anverso.png", png_sintetico(tono=180)),
+    )
+    guardar_documento_identidad(
+        autorizante,
+        archivo("reverso.png", png_sintetico(tono=220)),
+        reverso=True,
+    )
+    return autorizante
