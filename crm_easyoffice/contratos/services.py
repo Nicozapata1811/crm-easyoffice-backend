@@ -493,3 +493,23 @@ def opciones_contrato() -> dict[str, Any]:
             for servicio in servicios_contratables()
         ],
     }
+
+
+def contacto_de_aviso(cliente: Cliente) -> tuple[str, str]:
+    """Email and mobile for notices: the client's latest contract's, if any.
+
+    Falls back to the client's own email and phone.
+
+    ASSUMPTION: pending validation with Easy Office. Whether the notice
+    contact belongs to the company or its representative is open.
+    """
+    ultimo = (
+        Contrato.objects.filter(cliente=cliente)
+        .exclude(email_aviso="", movil_aviso="")
+        .order_by("-created_at", "-pk")
+        .first()
+    )
+    if ultimo is not None:
+        return ultimo.email_aviso, ultimo.movil_aviso
+    parte = cliente.parte
+    return parte.email, parte.telefono

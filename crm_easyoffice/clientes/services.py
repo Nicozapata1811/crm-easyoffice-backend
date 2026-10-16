@@ -170,9 +170,9 @@ def datos_contratante(cliente: Cliente) -> dict[str, dict[str, Any]]:
     Raises:
         ClienteNoEsEmpresaError: The client is a natural person.
     """
-    if cliente.empresa is None:
+    if cliente.empresa_id is None:
         raise ClienteNoEsEmpresaError
-    empresa = cliente.empresa
+    empresa = Empresa.objects.get(pk=cliente.empresa_id)
     representacion = representacion_vigente(empresa)
     persona = representacion.persona if representacion else None
     return {
