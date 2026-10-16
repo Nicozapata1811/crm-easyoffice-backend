@@ -1,10 +1,11 @@
 """Adapters for external services, behind interfaces this project owns.
 
 Responsibility
-    Defines the ``SignatureProvider`` and ``PaymentProvider`` contracts and
-    their implementations. The signature provider's credentials are not
-    available yet and the payment provider has not been chosen, so the only
-    implementations here are simulated ones satisfying the same contract.
+    Defines the ``SignatureProvider``, ``PaymentProvider`` and ``PdfConverter``
+    contracts and their implementations. The signature provider's credentials
+    are not available yet and the payment provider has not been chosen, so
+    simulated implementations satisfy the same contracts. PDF conversion uses
+    Gotenberg (LibreOffice in its own container).
 
 Dependencies
     May depend on: ``core``.

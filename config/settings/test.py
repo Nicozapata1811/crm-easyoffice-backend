@@ -39,3 +39,4 @@ MEDIA_URL = "http://media.testserver/"
 CELERY_TASK_ALWAYS_EAGER = True
 PAYMENT_PROVIDER = "simulated"
 PAYMENT_PROVIDERS = ["simulated"]
+PDF_CONVERTER = "simulated"
