@@ -41,9 +41,17 @@ class CicloPago(TimestampedModel):
 class Servicio(TimestampedModel):
     """A service Easy Office offers, with its list price.
 
-    The portal sells only those with ``se_vende_en_portal``; the rest are
-    contracted through an executive. A service with no fixed price has no
-    ``precio_base`` and can never be sold in the portal.
+    Two independent portal flags:
+
+    - ``se_vende_en_portal``: the service can be bought online. The rest are
+      contracted through an executive. A service with no fixed price has no
+      ``precio_base`` and can never be bought online.
+    - ``visible_en_portal``: the service is shown as a card on the portal
+      landing. A visible service need not be bookable ("Próximamente"), and
+      a bookable add-on such as the advanced electronic signature need not
+      be visible: it is charged inside another service's flow.
+
+    ``orden`` sets the order of the landing cards.
 
     ASSUMPTION: pending validation with Easy Office. Prices are not confirmed
     (MD-06, TA-15) and whether they include VAT is contradictory (RN-44 says
@@ -72,13 +80,23 @@ class Servicio(TimestampedModel):
         blank=True,
         related_name="servicios",
     )
-    se_vende_en_portal = models.BooleanField(_("se vende en el portal"), default=True)
+    se_vende_en_portal = models.BooleanField(
+        _("se vende en el portal"),
+        default=True,
+        help_text=_("Can be bought online. Requires a price."),
+    )
+    visible_en_portal = models.BooleanField(
+        _("visible en el portal"),
+        default=False,
+        help_text=_("Shown as a card on the portal landing, bookable or not."),
+    )
+    orden = models.PositiveSmallIntegerField(_("orden"), default=0)
     activo = models.BooleanField(_("activo"), default=True)
 
     class Meta:
         verbose_name = _("servicio")
         verbose_name_plural = _("servicios")
-        ordering = ["nombre"]
+        ordering = ["orden", "nombre"]
         constraints = [
             models.CheckConstraint(
                 condition=Q(se_vende_en_portal=False) | Q(precio_base__isnull=False),

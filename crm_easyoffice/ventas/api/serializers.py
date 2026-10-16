@@ -33,6 +33,8 @@ class ServicioSerializer(serializers.ModelSerializer[Servicio]):
             "precio_incluye_iva",
             "precio_confirmado",
             "ciclo_pago_default",
+            "visible_en_portal",
+            "se_vende_en_portal",
         ]
         read_only_fields = fields
 

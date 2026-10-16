@@ -24,9 +24,17 @@ class ServicioAdmin(admin.ModelAdmin):
         "precio_confirmado",
         "ciclo_pago_default",
         "se_vende_en_portal",
+        "visible_en_portal",
+        "orden",
         "activo",
     ]
-    list_filter = ["activo", "se_vende_en_portal", "precio_confirmado"]
+    list_editable = ["orden"]
+    list_filter = [
+        "activo",
+        "se_vende_en_portal",
+        "visible_en_portal",
+        "precio_confirmado",
+    ]
     search_fields = ["codigo", "nombre"]
 
 

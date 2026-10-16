@@ -13,6 +13,9 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from crm_easyoffice.clientes.tests.factories import CuentaClienteFactory
+from crm_easyoffice.contratos.services import LineaContrato
+from crm_easyoffice.contratos.tests.factories import domicilio_en
+from crm_easyoffice.contratos.tests.factories import nuevo_contrato
 from crm_easyoffice.ventas.models import CicloPago
 from crm_easyoffice.ventas.models import ItemVenta
 from crm_easyoffice.ventas.models import Servicio
@@ -135,11 +138,11 @@ class TestSeed:
 
 
 class TestPortal:
-    def test_portal_lists_only_services_sold_online(self):
+    def test_portal_lists_only_visible_or_bookable_services(self):
         response = APIClient().get(reverse("portal:servicio-list"))
 
         codigos = {fila["codigo"] for fila in response.data}
-        assert "domicilio-tributario" in codigos
+        assert {"domicilio-tributario", "firma-electronica-avanzada"} <= codigos
         assert codigos.isdisjoint(
             {"creacion-empresas", "web-mail-dominio", "contabilidad"},
         )
@@ -169,3 +172,170 @@ class TestPortal:
         sin_precio = ServicioFactory.create(precio_base=None, se_vende_en_portal=False)
 
         assert sin_precio.precio_base is None
+
+
+visibles = importlib.import_module(
+    "crm_easyoffice.ventas.migrations.0010_seed_servicios_visibles",
+)
+
+PROXIMAMENTE = [
+    "bodega",
+    "arriendo-vehiculo",
+    "arriendo-estacionamiento",
+    "acuerdo-accionistas",
+    "poder-simple",
+]
+
+
+class TestSeedVisibles:
+    @pytest.mark.parametrize("codigo", PROXIMAMENTE)
+    def test_seed_adds_visible_services_not_sold_online(self, codigo):
+        cargado = servicio(codigo)
+
+        assert cargado.visible_en_portal is True
+        assert cargado.se_vende_en_portal is False
+        assert cargado.activo is True
+        assert cargado.precio_base is None
+        assert cargado.precio_confirmado is False
+        assert cargado.ciclo_pago_default is None
+        assert cargado.descripcion
+
+    def test_seed_shows_domicilio_first(self):
+        domicilio = servicio("domicilio-tributario")
+
+        assert domicilio.visible_en_portal is True
+        assert domicilio.se_vende_en_portal is True
+        assert domicilio.orden < min(servicio(c).orden for c in PROXIMAMENTE)
+
+    def test_signature_add_on_stays_hidden_but_bookable(self):
+        firma = servicio("firma-electronica-avanzada")
+
+        assert firma.visible_en_portal is False
+        assert firma.se_vende_en_portal is True
+
+    def test_seed_is_idempotent_and_keeps_admin_edits(self):
+        Servicio.objects.filter(codigo="bodega").update(descripcion="Texto editado")
+
+        visibles.seed(apps, None)
+
+        assert Servicio.objects.filter(codigo__in=PROXIMAMENTE).count() == len(
+            PROXIMAMENTE,
+        )
+        assert servicio("bodega").descripcion == "Texto editado"
+
+    def test_seed_leaves_existing_sales_untouched(self):
+        domicilio = servicio("domicilio-tributario")
+        venta = crear_venta(CuentaClienteFactory.create().cliente, [(domicilio, 1)])
+
+        visibles.seed(apps, None)
+
+        assert servicio("domicilio-tributario").precio_base == domicilio.precio_base
+        item = ItemVenta.objects.get(venta=venta)
+        assert item.precio_unitario == domicilio.precio_base
+
+    def test_reverse_keeps_services_with_a_contract(self):
+        nuevo_contrato(
+            lineas=[
+                domicilio_en("LF"),
+                LineaContrato(
+                    servicio=servicio("bodega"),
+                    ciclo_pago=CicloPago.objects.get(codigo="mensual"),
+                    precio=Decimal(50000),
+                ),
+            ],
+        )
+
+        visibles.unseed(apps, None)
+
+        codigos = set(Servicio.objects.values_list("codigo", flat=True))
+        assert "bodega" in codigos
+        assert codigos.isdisjoint(set(PROXIMAMENTE) - {"bodega"})
+        assert servicio("domicilio-tributario").visible_en_portal is False
+
+
+class TestVisibilidad:
+    def test_visible_service_without_price_may_exist_off_sale(self):
+        sin_precio = ServicioFactory.create(
+            precio_base=None,
+            se_vende_en_portal=False,
+            visible_en_portal=True,
+        )
+
+        assert sin_precio.precio_base is None
+
+    def test_bookable_service_requires_price_even_when_visible(self):
+        with pytest.raises(IntegrityError):
+            ServicioFactory.create(
+                precio_base=None,
+                se_vende_en_portal=True,
+                visible_en_portal=True,
+            )
+
+    def test_hidden_bookable_service_is_allowed(self):
+        complemento = ServicioFactory.create(visible_en_portal=False)
+
+        assert complemento.se_vende_en_portal is True
+
+    def test_payload_says_whether_each_service_is_visible_and_bookable(self):
+        response = APIClient().get(reverse("portal:servicio-list"))
+
+        por_codigo = {fila["codigo"]: fila for fila in response.data}
+        assert por_codigo["bodega"]["visible_en_portal"] is True
+        assert por_codigo["bodega"]["se_vende_en_portal"] is False
+        assert por_codigo["bodega"]["precio_base"] is None
+        assert por_codigo["domicilio-tributario"]["se_vende_en_portal"] is True
+        assert por_codigo["firma-electronica-avanzada"]["visible_en_portal"] is False
+
+    def test_payload_excludes_inactive_and_internal_services(self):
+        ServicioFactory.create(codigo="inactivo", visible_en_portal=True, activo=False)
+        ServicioFactory.create(
+            codigo="interno",
+            se_vende_en_portal=False,
+            visible_en_portal=False,
+        )
+
+        response = APIClient().get(reverse("portal:servicio-list"))
+
+        codigos = {fila["codigo"] for fila in response.data}
+        assert codigos.isdisjoint({"inactivo", "interno"})
+
+    def test_payload_follows_the_admin_order(self):
+        Servicio.objects.filter(codigo="poder-simple").update(orden=1)
+
+        response = APIClient().get(reverse("portal:servicio-list"))
+
+        visibles_en_orden = [
+            fila["codigo"] for fila in response.data if fila["visible_en_portal"]
+        ]
+        assert visibles_en_orden == [
+            "poder-simple",
+            "domicilio-tributario",
+            "bodega",
+            "arriendo-vehiculo",
+            "arriendo-estacionamiento",
+            "acuerdo-accionistas",
+        ]
+
+    def test_cannot_buy_a_visible_service_not_sold_online(self):
+        api_client = APIClient()
+        api_client.force_authenticate(CuentaClienteFactory.create().user)
+
+        response = api_client.post(
+            reverse("portal:venta-list"),
+            {"items": [{"servicio": "bodega", "cantidad": 1}]},
+            format="json",
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_can_buy_a_hidden_add_on_sold_online(self):
+        api_client = APIClient()
+        api_client.force_authenticate(CuentaClienteFactory.create().user)
+
+        response = api_client.post(
+            reverse("portal:venta-list"),
+            {"items": [{"servicio": "firma-electronica-avanzada", "cantidad": 1}]},
+            format="json",
+        )
+
+        assert response.status_code == HTTPStatus.CREATED

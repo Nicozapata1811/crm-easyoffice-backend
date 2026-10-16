@@ -292,9 +292,16 @@ Never import a provider SDK outside `integrations/`.
   - The catalogue comes from Easy Office's contract form
     (`0007_seed_catalogo_formulario`, descriptions verbatim): domicilio
     tributario, creación de empresas, web mail + dominio, and contabilidad
-    (inactive, no price, until Easy Office provides one). Only services with
-    `se_vende_en_portal` are listed or sold in the portal, and a constraint
-    stops a portal service from having no price. `precio_incluye_iva` records
+    (inactive, no price, until Easy Office provides one). Two independent
+    portal flags: `se_vende_en_portal` (bookable online; a constraint stops
+    it without a price) and `visible_en_portal` (a card on the landing).
+    `/api/portal/servicios/` lists active services that are either, with
+    both flags, ordered by `orden`. Purchases accept only bookable ones.
+    Firma electrónica avanzada is bookable but hidden (an add-on charged in
+    the domicile flow); `0010_seed_servicios_visibles` adds bodega, arriendo
+    de vehículo, arriendo de estacionamiento, acuerdo de accionistas and
+    poder simple as visible, not bookable, with no price (assumption; their
+    descriptions are ours and edited in the admin). `precio_incluye_iva` records
     how each price reads while the VAT question is open (RN-44 vs the
     template's "más I.V.A."); every price stays unconfirmed until then.
   - Not built yet: a refund endpoint (refund policy undefined) and real sales
@@ -390,8 +397,10 @@ the audit log exists, client changes carry `TODO(RF-15)`.
 **Still unknown — do not invent answers:**
 
 - Structure and quality of the Excel file
-- Real document templates and their format (Word? PDF? must the layout be
-  reproduced exactly? — this determines the document generation library)
+- Whether the generated document must reproduce the templates' layout
+  exactly. The templates are known: Word files with `MERGEFIELD`s, anonymized
+  as `PLT-01..05` in the evidence repository (`13_plantillas`). The generation
+  library is still to be chosen (spike pending).
 - Exact case states and valid transitions
 - Roles beyond Administrador and Ejecutivo (a "supervisor" appears in HU-05
   and HU-41 but is not confirmed), whether an Ejecutivo sees the dashboard,
