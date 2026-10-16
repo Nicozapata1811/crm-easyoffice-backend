@@ -45,8 +45,9 @@ logger = logging.getLogger(__name__)
 # Context builders by template code. A new template adds its own.
 CONTEXTOS = {"PLT-01": plt01.contexto}
 
-# Two identity-card images side by side fit the page at 70 mm each.
-ANCHO_CEDULA = Mm(70)
+# Two identity-card images side by side fit the page at 60 mm each, also with
+# LibreOffice's font metrics (70 mm fit in Word but stacked in the PDF).
+ANCHO_CEDULA = Mm(60)
 
 # ASSUMPTION: pending validation with Easy Office. No size limit is agreed
 # for a signed contract.

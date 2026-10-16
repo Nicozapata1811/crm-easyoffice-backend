@@ -14,6 +14,7 @@ It also fixes what a mail merge cannot do:
 - OB-02: the SII unit and the municipality come from the branch instead of
   the text "UNIDAD DE SAN ANTONIO «COMUNA_SUCURSAL»".
 - The two ID-card placeholders become the front and back images.
+- Tracked changes left in the template are accepted.
 
 Every edit asserts the exact runs it expects and fails on template drift,
 so a new version from Easy Office is never converted silently wrong.
@@ -95,6 +96,20 @@ def _campo_servicio(nombre: str) -> str | None:
 def _fila_tag(tag: str) -> str:
     # docxtpl replaces the whole row holding a {%tr %} tag with the tag.
     return f"<w:tr><w:tc><w:p>{_tag(tag)}</w:p></w:tc></w:tr>"
+
+
+def _aceptar_revisiones(doc: str) -> str:
+    """Accept the template's tracked changes: drop deletions, keep insertions.
+
+    Word hides them when exporting, LibreOffice prints revision bars: a
+    generated contract must carry none.
+    """
+    doc = re.sub(r"<w:del [^>]*[^/]>.*?</w:del>", "", doc, flags=re.S)
+    doc = re.sub(r"<w:ins [^>]*[^/]>(.*?)</w:ins>", r"\1", doc, flags=re.S)
+    if re.search(r"<w:(ins|del|moveFrom|moveTo)[ >/]|<w:\w+PrChange[ >]", doc):
+        msg = "template drift: a tracked change could not be accepted"
+        raise ValueError(msg)
+    return doc
 
 
 def _filas_servicio(doc: str) -> str:
@@ -211,6 +226,7 @@ def convertir(origen: bytes) -> bytes:
     parts = ooxml.read_docx(origen)
     doc = parts["word/document.xml"].decode()
     for paso in (
+        _aceptar_revisiones,
         _filas_servicio,
         _primero,
         _unidad_sii,

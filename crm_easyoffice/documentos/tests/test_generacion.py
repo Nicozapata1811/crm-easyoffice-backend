@@ -147,3 +147,10 @@ def test_a_branch_without_authoriser_gives_no_document(
     assert situacion(tramite) == ("pendiente", "falta_informacion")
     assert "autorizante" in tramite.detalle_pendiente
     assert not Documento.objects.exists()
+
+
+def test_the_template_carries_no_tracked_changes(caso):
+    import re  # noqa: PLC0415
+
+    for docx in (PLANTILLA_PLT01.read_bytes(), docx_de(caso.documentos.get())):
+        assert not re.search(r"<w:(ins|del)[ >]", v.documento(docx))
