@@ -388,6 +388,9 @@ SPECTACULAR_SETTINGS = {
         "TipoPagoEnum": "crm_easyoffice.ventas.models.Pago.Tipo",
         "EstadoVentaEnum": "crm_easyoffice.ventas.models.Venta.Estado",
         "EstadoOrdenPagoEnum": "crm_easyoffice.ventas.models.OrdenPago.Estado",
+        "EstadoTramiteEnum": "crm_easyoffice.tramites.models.Tramite.Estado",
+        "EstadoDocumentoEnum": "crm_easyoffice.documentos.models.Documento.Estado",
+        "EstadoContratoEnum": "crm_easyoffice.contratos.models.Contrato.Estado",
     },
 }
 # Your stuff...

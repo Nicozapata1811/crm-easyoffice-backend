@@ -33,13 +33,13 @@ MOVIL = r"^9\d{8}$"
 # ---------------------------------------------------------------------------
 
 
-class EmpresaSerializer(serializers.Serializer):
+class EmpresaContratanteSerializer(serializers.Serializer):
     rut = RutField()
     razon_social = serializers.CharField(max_length=255)
     giro = serializers.CharField(max_length=255)
 
 
-class RepresentanteSerializer(serializers.Serializer):
+class RepresentanteContratanteSerializer(serializers.Serializer):
     rut = RutField()
     nombres = serializers.CharField(max_length=100)
     apellido_paterno = serializers.CharField(max_length=100)
@@ -65,8 +65,8 @@ class PersoneriaSerializer(serializers.Serializer):
 
 
 class DomicilioSerializer(serializers.Serializer):
-    empresa = EmpresaSerializer()
-    representante = RepresentanteSerializer()
+    empresa = EmpresaContratanteSerializer()
+    representante = RepresentanteContratanteSerializer()
     personeria = PersoneriaSerializer()
     email_aviso = serializers.EmailField()
     movil_aviso = serializers.RegexField(
