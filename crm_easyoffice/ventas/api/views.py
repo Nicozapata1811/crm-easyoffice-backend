@@ -77,10 +77,20 @@ def cliente_de(request: Request) -> Cliente:
 
 
 class ServicioPortalView(ListAPIView):
+    """Services the portal needs: landing cards and anything bookable online.
+
+    A bookable add-on that is not a landing card is listed too, because the
+    portal reads its price when it is charged inside another service.
+    """
+
     permission_classes = [AllowAny]
     serializer_class = ServicioSerializer
     pagination_class = None
-    queryset = Servicio.objects.filter(activo=True, se_vende_en_portal=True)
+    queryset = (
+        Servicio.objects.filter(activo=True)
+        .filter(Q(visible_en_portal=True) | Q(se_vende_en_portal=True))
+        .select_related("ciclo_pago_default")
+    )
 
 
 class VentaPortalViewSet(
