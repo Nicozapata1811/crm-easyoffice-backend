@@ -28,7 +28,8 @@ pytestmark = pytest.mark.django_db
 
 def plan(codigo: str) -> PlanServicio:
     return PlanServicio.objects.get(
-        servicio__codigo="domicilio-tributario", codigo=codigo
+        servicio__codigo="domicilio-tributario",
+        codigo=codigo,
     )
 
 

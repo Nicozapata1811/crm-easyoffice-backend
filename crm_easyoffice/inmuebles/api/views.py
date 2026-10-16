@@ -10,6 +10,7 @@ from django.http import FileResponse
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
 from drf_spectacular.utils import OpenApiResponse
 from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import BasePermission
@@ -40,20 +41,25 @@ class DocumentoIdentidadView(APIView):
 
     permission_classes = [PuedeVerDocumentoIdentidad]
 
-    @extend_schema(responses={(200, "*/*"): OpenApiResponse(OpenApiTypes.BINARY)})
+    @extend_schema(
+        parameters=[OpenApiParameter("lado", str, enum=["anverso", "reverso"])],
+        responses={(200, "*/*"): OpenApiResponse(OpenApiTypes.BINARY)},
+    )
     def get(self, request: Request, pk: int) -> FileResponse:
         autorizante = get_object_or_404(Autorizante, pk=pk)
+        reverso = request.query_params.get("lado") == "reverso"
         try:
-            archivo = abrir_documento_identidad(autorizante)
+            archivo = abrir_documento_identidad(autorizante, reverso=reverso)
         except FileNotFoundError as error:
             raise Http404 from error
 
-        extension = PurePath(autorizante.documento_identidad.name).suffix.lower()
+        lado = "reverso" if reverso else "anverso"
+        extension = PurePath(archivo.name).suffix.lower()
         content_type = mimetypes.types_map.get(extension, "application/octet-stream")
         response = FileResponse(
             archivo,
             as_attachment=True,
-            filename=f"cedula-autorizante-{autorizante.pk}{extension}",
+            filename=f"cedula-autorizante-{autorizante.pk}-{lado}{extension}",
             content_type=content_type,
         )
         response["Cache-Control"] = "no-store, private"

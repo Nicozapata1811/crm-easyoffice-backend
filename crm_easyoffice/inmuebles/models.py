@@ -189,7 +189,15 @@ class Autorizante(TimestampedModel):
         help_text=_("Empty means the authorisation has no end date."),
     )
     documento_identidad = models.FileField(
-        _("cédula de identidad"),
+        _("cédula de identidad (anverso)"),
+        storage=get_private_storage,
+        upload_to=ruta_documento_identidad,
+        blank=True,
+        validators=VALIDADORES_DOCUMENTO,
+    )
+    # PLT-01 prints two images of the card: front and back.
+    documento_identidad_reverso = models.FileField(
+        _("cédula de identidad (reverso)"),
         storage=get_private_storage,
         upload_to=ruta_documento_identidad,
         blank=True,

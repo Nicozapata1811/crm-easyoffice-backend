@@ -17,8 +17,10 @@ from crm_easyoffice.configuracion.services import ConfiguracionIncompletaError
 from crm_easyoffice.configuracion.services import cuenta_pago_para
 from crm_easyoffice.configuracion.services import marcas_activas
 from crm_easyoffice.configuracion.services import obtener_config_empresa
+from crm_easyoffice.configuracion.services import problemas_para_contrato
 from crm_easyoffice.configuracion.tests.factories import CuentaPagoFactory
 from crm_easyoffice.configuracion.tests.factories import MarcaFactory
+from crm_easyoffice.configuracion.tests.factories import preparar_config_contrato
 from crm_easyoffice.users.tests.factories import UserFactory
 
 pytestmark = pytest.mark.django_db
@@ -134,3 +136,36 @@ class TestAdmin:
         )
 
         assert [fila["id"] for fila in response.json()["results"]] == [str(persona.pk)]
+
+
+class TestProblemasParaContrato:
+    def test_complete_configuration_has_no_problems(self):
+        preparar_config_contrato()
+
+        assert problemas_para_contrato("EASY OFFICE") == []
+
+    def test_the_seed_lacks_easy_offices_representative(self):
+        assert problemas_para_contrato("EASY OFFICE") == [
+            "Falta el representante legal de Easy Office.",
+        ]
+
+    def test_missing_representative_fields_are_named(self):
+        config = preparar_config_contrato()
+        config.representante.nacionalidad = ""
+        config.representante.save()
+
+        assert problemas_para_contrato("EASY OFFICE") == [
+            "Faltan datos del representante de Easy Office: nacionalidad.",
+        ]
+
+    def test_an_inactive_brand_or_account_is_a_problem(self):
+        preparar_config_contrato()
+        Marca.objects.filter(nombre="INOFFICE").update(activa=False)
+        marca = Marca.objects.get(nombre="EASY OFFICE")
+        marca.cuenta_pago_default.activa = False
+        marca.cuenta_pago_default.save()
+
+        assert problemas_para_contrato("INOFFICE") == [
+            "La marca INOFFICE no existe o está inactiva.",
+        ]
+        assert len(problemas_para_contrato("EASY OFFICE")) == 1
