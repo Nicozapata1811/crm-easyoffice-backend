@@ -14,6 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.mixins import ListModelMixin
 from rest_framework.mixins import RetrieveModelMixin
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
@@ -35,6 +36,7 @@ from crm_easyoffice.tramites.services import cambiar_fecha_inicio
 from crm_easyoffice.tramites.services import confirmar_borrador
 from crm_easyoffice.tramites.services import formulario_domicilio
 from crm_easyoffice.tramites.services import iniciar_domicilio
+from crm_easyoffice.tramites.services import reintentar_documento
 from crm_easyoffice.ventas.services import PlanNoDisponibleError
 from crm_easyoffice.ventas.services import precio_firma
 
@@ -54,6 +56,14 @@ REPRESENTANTE_NO_DISPONIBLE = _(
     "We cannot use this representative's RUT. Please contact Easy Office.",
 )
 FECHA_VENCIDA = _("The start date has passed: choose a new one.")
+
+
+class PuedeGestionarTramites(BasePermission):
+    def has_permission(self, request: Request, view) -> bool:
+        return bool(
+            request.user.is_authenticated
+            and request.user.has_perm("tramites.gestionar_tramite"),
+        )
 
 
 def cliente_de(request: Request) -> Cliente:
@@ -78,7 +88,12 @@ def _conflicto(detalle: str, codigo: str) -> Response:
     )
 
 
-def _responder(operacion: Callable[[], Tramite], creado: bool = False) -> Response:  # noqa: FBT001, FBT002
+def _responder(
+    operacion: Callable[[], Tramite],
+    *,
+    creado: bool = False,
+    serializer: type[TramiteSerializer] = TramiteSerializer,
+) -> Response:
     """Run a case operation and turn its domain errors into HTTP answers."""
     try:
         tramite = operacion()
@@ -101,7 +116,7 @@ def _responder(operacion: Callable[[], Tramite], creado: bool = False) -> Respon
         )
     tramite = _con_tramite(Tramite.objects.all()).get(pk=tramite.pk)
     return Response(
-        TramiteSerializer(tramite).data,
+        serializer(tramite).data,
         status=status.HTTP_201_CREATED if creado else status.HTTP_200_OK,
     )
 
@@ -213,3 +228,13 @@ class TramiteViewSet(ReadOnlyModelViewSet):
                 | Q(cliente__in=clientes),
             )
         return queryset
+
+    @extend_schema(request=None, responses=TramiteBackofficeSerializer)
+    @action(detail=True, methods=["post"], permission_classes=[PuedeGestionarTramites])
+    def regenerar(self, request: Request, pk: str | None = None) -> Response:
+        """Generate the document again once the missing data was completed."""
+        tramite = self.get_object()
+        return _responder(
+            lambda: reintentar_documento(tramite, request.user),
+            serializer=TramiteBackofficeSerializer,
+        )

@@ -31,6 +31,7 @@ urlpatterns = [
 urlpatterns += [
     # API base url
     path("api/", include("config.api_router")),
+    path("api/", include("crm_easyoffice.documentos.api.urls")),
     path("api/auth/", include("crm_easyoffice.users.api.auth_urls")),
     path("api/panel/", include("crm_easyoffice.panel.api.urls")),
     path("api/inmuebles/", include("crm_easyoffice.inmuebles.api.urls")),

@@ -158,6 +158,9 @@ class Tramite(TimestampedModel):
         verbose_name = _("trámite")
         verbose_name_plural = _("trámites")
         ordering = ["-created_at", "-pk"]
+        permissions = [
+            ("gestionar_tramite", _("Can act on a case (retry its document)")),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=(

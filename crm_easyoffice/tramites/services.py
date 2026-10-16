@@ -555,3 +555,26 @@ def formulario_domicilio(cliente: Cliente) -> dict[str, Any]:
             else None
         ),
     }
+
+
+def reintentar_documento(tramite: Tramite, usuario: User | None = None) -> Tramite:
+    """Generate the document again once the executive completed the data.
+
+    Raises:
+        TransicionInvalidaError: The case is not waiting for information, or
+            it waits for the client's new start date.
+    """
+    if situacion(tramite) != (PENDIENTE, FALTA_INFORMACION) or (
+        tramite.detalle_pendiente == NUEVA_FECHA
+    ):
+        msg = f"{tramite} is not waiting for data the executive can complete."
+        raise TransicionInvalidaError(msg)
+    with transaction.atomic():
+        tramite = _mover(
+            tramite,
+            INICIADO,
+            usuario=usuario,
+            detalle="Documento solicitado de nuevo.",
+        )
+        _pedir_documento(tramite)
+    return tramite
