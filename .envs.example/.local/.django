@@ -41,3 +41,9 @@ PAYMENT_TUNNEL_METRICS_URL=http://tunnel:2000/quicktunnel
 PAYMENT_WEBHOOK_BASE_URL=
 DJANGO_EXTRA_ALLOWED_HOSTS=
 PORTAL_BASE_URL=http://localhost:5173
+
+# Documents
+# ------------------------------------------------------------------------------
+# Word-to-PDF conversion of generated contracts (gotenberg | simulated).
+PDF_CONVERTER=gotenberg
+GOTENBERG_URL=http://gotenberg:3000

@@ -45,3 +45,9 @@ REDIS_URL=redis://redis:6379/0
 # Flower
 CELERY_FLOWER_USER=CHANGEME
 CELERY_FLOWER_PASSWORD=CHANGEME
+
+# Documents
+# ------------------------------------------------------------------------------
+# Word-to-PDF conversion of generated contracts (gotenberg | simulated).
+PDF_CONVERTER=gotenberg
+GOTENBERG_URL=http://gotenberg:3000

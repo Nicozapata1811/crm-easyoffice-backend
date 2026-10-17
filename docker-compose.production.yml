@@ -61,9 +61,18 @@ services:
       - production_redis_data:/data
 
 
+  # Converts the generated contracts from Word to PDF (LibreOffice). Internal
+  # only: no port is published and traefik does not route to it.
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:8.37.0-libreoffice
+
   celeryworker:
     <<: *django
     image: crm_easyoffice_production_celeryworker
+    depends_on:
+      - postgres
+      - redis
+      - gotenberg
     command: /start-celeryworker
 
   celerybeat:

@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import transaction
+from django.dispatch import Signal
 from django.utils import timezone
 
 from crm_easyoffice.integrations.payment.base import PaymentStatus
@@ -21,11 +23,13 @@ from .models import CicloPago
 from .models import ItemVenta
 from .models import OrdenPago
 from .models import Pago
+from .models import PlanServicio
 from .models import Servicio
 from .models import Venta
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from decimal import Decimal
 
     from django.db.models import QuerySet
 
@@ -34,6 +38,14 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+# Sent once a sale is paid, after the transaction commits, with ``venta``.
+# Other apps observe it; this app does not know who is listening.
+venta_pagada = Signal()
+
+# ASSUMPTION: pending validation with Easy Office. The advanced electronic
+# signature charged on top of a plan that does not include it.
+SERVICIO_FIRMA = "firma-electronica-avanzada"
 
 Estado = OrdenPago.Estado
 
@@ -69,18 +81,42 @@ class ProveedorNoHabilitadoError(Exception):
     """The client chose a payment provider that is not enabled."""
 
 
-def crear_venta(cliente: Cliente, items: Iterable[tuple[Servicio, int]]) -> Venta:
-    """Record a sale at today's list prices (RN-08)."""
-    lineas = [
-        ItemVenta(
-            servicio=servicio,
-            nombre=servicio.nombre,
-            precio_unitario=servicio.precio_base,
-            cantidad=cantidad,
-            subtotal=servicio.precio_base * cantidad,
-        )
-        for servicio, cantidad in items
-    ]
+class PlanNoDisponibleError(Exception):
+    """The plan cannot be sold: inactive, off the portal, or missing a price."""
+
+
+@dataclass(frozen=True)
+class LineaVenta:
+    """A line to sell. ``precio`` is a plan's price; None means the list price."""
+
+    servicio: Servicio
+    cantidad: int = 1
+    precio: Decimal | None = None
+    nombre: str | None = None
+
+
+def _item(linea: LineaVenta | tuple[Servicio, int]) -> ItemVenta:
+    if not isinstance(linea, LineaVenta):
+        linea = LineaVenta(*linea)
+    precio = linea.precio if linea.precio is not None else linea.servicio.precio_base
+    return ItemVenta(
+        servicio=linea.servicio,
+        nombre=linea.nombre or linea.servicio.nombre,
+        precio_unitario=precio,
+        cantidad=linea.cantidad,
+        subtotal=precio * linea.cantidad,
+    )
+
+
+def crear_venta(
+    cliente: Cliente,
+    items: Iterable[LineaVenta | tuple[Servicio, int]],
+) -> Venta:
+    """Record a sale at today's list or plan prices (RN-08).
+
+    ``items`` are lines, or (servicio, cantidad) pairs sold at list price.
+    """
+    lineas = [_item(item) for item in items]
     with transaction.atomic():
         venta = Venta.objects.create(
             cliente=cliente,
@@ -91,6 +127,69 @@ def crear_venta(cliente: Cliente, items: Iterable[tuple[Servicio, int]]) -> Vent
         ItemVenta.objects.bulk_create(lineas)
     # TODO(RF-15): record the sale in the audit log (HU-30).
     return venta
+
+
+def planes_en_portal(servicio_codigo: str) -> QuerySet[PlanServicio]:
+    """Active plans of a service the portal may sell, in display order."""
+    return PlanServicio.objects.filter(
+        servicio__codigo=servicio_codigo,
+        servicio__activo=True,
+        activo=True,
+        se_vende_en_portal=True,
+    ).select_related("servicio", "ciclo_pago")
+
+
+def precio_firma() -> Decimal | None:
+    """The list price of the signature charged on top of some plans."""
+    return (
+        Servicio.objects.filter(codigo=SERVICIO_FIRMA, activo=True)
+        .values_list("precio_base", flat=True)
+        .first()
+    )
+
+
+def lineas_de_plan(plan: PlanServicio) -> list[LineaVenta]:
+    """What selling ``plan`` charges: the plan, plus the signature if not included.
+
+    Raises:
+        PlanNoDisponibleError: The plan or the signature cannot be sold.
+    """
+    if not (plan.activo and plan.se_vende_en_portal and plan.servicio.activo):
+        raise PlanNoDisponibleError
+    lineas = [
+        LineaVenta(
+            plan.servicio,
+            precio=plan.precio,
+            nombre=f"{plan.servicio.nombre} · {plan.nombre}",
+        ),
+    ]
+    if not plan.firma_incluida:
+        firma = Servicio.objects.filter(codigo=SERVICIO_FIRMA, activo=True).first()
+        if firma is None or firma.precio_base is None:
+            raise PlanNoDisponibleError
+        lineas.append(LineaVenta(firma))
+    return lineas
+
+
+def anular_venta(venta: Venta) -> None:
+    """Cancel a sale still waiting for payment, and its open attempts.
+
+    A payment that still arrives for a cancelled attempt is recorded anyway,
+    as for any closed attempt (see TRANSICIONES).
+
+    Raises:
+        VentaNoPagableError: The sale is not waiting for payment.
+    """
+    with transaction.atomic():
+        venta = Venta.objects.select_for_update().get(pk=venta.pk)
+        if venta.estado != Venta.Estado.PENDIENTE_PAGO:
+            raise VentaNoPagableError
+        venta.ordenes.filter(estado__in=OrdenPago.ABIERTAS).update(
+            estado=Estado.CANCELADA,
+        )
+        venta.estado = Venta.Estado.ANULADA
+        venta.save(update_fields=["estado", "updated_at"])
+    # TODO(RF-15): record the cancellation in the audit log (HU-30).
 
 
 def iniciar_pago(venta: Venta, proveedor: str) -> OrdenPago:
@@ -225,6 +324,9 @@ def _registrar_pago(orden: OrdenPago, resultado: PaymentResult) -> None:
     venta.estado = Venta.Estado.PAGADA
     venta.pagada_en = timezone.now()
     venta.save(update_fields=["estado", "pagada_en", "updated_at"])
+    transaction.on_commit(
+        lambda: venta_pagada.send(sender=Venta, venta=venta),
+    )
 
 
 def ciclos_pago_activos() -> QuerySet[CicloPago]:

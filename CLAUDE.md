@@ -172,6 +172,12 @@ class PaymentProvider(ABC): ...
 
 Never import a provider SDK outside `integrations/`.
 
+**PDF.** Generated contracts are converted from Word to PDF by Gotenberg
+(LibreOffice, `gotenberg/gotenberg:8.37.0-libreoffice`), a compose service
+reached only by the Celery worker, behind `integrations/pdf/`
+(`PdfConverter`; `PDF_CONVERTER=gotenberg|simulated`, `GOTENBERG_URL`).
+Tests use the simulated converter.
+
 ---
 
 ## Authentication and roles
@@ -236,6 +242,15 @@ Never import a provider SDK outside `integrations/`.
     Ejecutivo wholesale. Uploads go through
     `inmuebles.services.guardar_documento_identidad` (JPG/PNG/PDF checked by
     content, 5 MB).
+    Both sides are stored (`documento_identidad`, `documento_identidad_reverso`;
+    download with `?lado=reverso`): PLT-01 prints both.
+  - A branch is offered for the online domicile only when
+    `inmuebles.services.problemas_para_domicilio(oficina, fecha)` is empty:
+    real address and rol, SII unit and municipality (OB-02), a current
+    authoriser that is a company with a representative holding every field the
+    contract prints, and both card sides as JPG/PNG. The admin shows the list
+    per branch. `manage.py seed_demo_domicilio` (DEBUG only) fills the seeded
+    branches and Easy Office's representative with fictitious data.
   - Who is domiciled where comes from contracts:
     `contratos.services.ocupantes(inmueble, fecha)`. `AsignacionDomicilio` was
     removed (HU-60).
@@ -245,7 +260,8 @@ Never import a provider SDK outside `integrations/`.
   fictitious values and no RUT; the real data is entered in the admin and
   never committed. Nothing is deleted, only deactivated. Read it through
   `configuracion.services` (`obtener_config_empresa`, `marcas_activas`,
-  `cuenta_pago_para`). That both brands are one company is an assumption.
+  `cuenta_pago_para`; `problemas_para_contrato` lists what a contract needs
+  and is missing). That both brands are one company is an assumption.
 - **Contracts** (`contratos/`, HU-60): `Contrato` is one row of Easy Office's
   spreadsheet: folio, brand, client, signer, payment account, term and
   notice contact, grouping `ServicioContratado` lines (name, description,
@@ -261,6 +277,11 @@ Never import a provider SDK outside `integrations/`.
     folios (TA-03).
   - Expiry is start + duration − 1 day (RN-37), computed; durations come from
     `DuracionContrato` (1, 3, 4, 6, 12).
+  - States: `borrador` (a portal request: it has its folio but occupies no
+    domicile), `vigente`, `terminado`, `anulado`. A draft changes only through
+    `actualizar_borrador` (folio and branch fixed), enters into force with
+    `activar_contrato` once signed, or is annulled keeping its folio. A line
+    may name a `PlanServicio`, which sets its price, cycle and the duration.
   - API: `/api/contratos/` list, record and create (`contratos.add_contrato`;
     no PATCH or DELETE), filters `buscar`, `estado`, `marca`, `sucursal`,
     `anio`; `GET /api/contratos/opciones/` lists brands, accounts, terms,
@@ -304,9 +325,55 @@ Never import a provider SDK outside `integrations/`.
     descriptions are ours and edited in the admin). `precio_incluye_iva` records
     how each price reads while the VAT question is open (RN-44 vs the
     template's "más I.V.A."); every price stays unconfirmed until then.
+  - Plans (`PlanServicio`, HU-24): the portal sells domicilio tributario as
+    plan anual (12 months, 59.990, signature included) or semestral (6 months,
+    39.990, the firma service charged on top, 5.000), from Easy Office's
+    website, unconfirmed. `lineas_de_plan` builds the sale's lines;
+    `anular_venta` cancels a pending sale; `venta_pagada` (signal, on commit)
+    announces a paid one.
   - Not built yet: a refund endpoint (refund policy undefined) and real sales
     figures in the dashboard (`ventas` is still an example key: sales have no
     executive yet).
+- **Cases** (`tramites/`, HU-24): `TipoTramite` (configuration JSONB:
+  `servicio`, `marca`, `plantilla`, `requiere_pago`, `requiere_firma`,
+  `inicio_max_dias`), `MotivoPendiente` (TA-13 open), `Tramite` and its
+  append-only `EventoTramite` history. States follow RN-42: iniciado →
+  pendiente (reason) → completado; moves go only through `tramites.services`
+  against its `TRANSICIONES` table. A case links its draft contract and its
+  sale (MD-10).
+  - Domicile flow: the company client files the form (`iniciar_domicilio`:
+    `clientes.services.guardar_datos_contratante`, which never edits a person
+    who does not already represent that company, then a draft contract) →
+    the `documento_requerido` signal → document generated →
+    pendiente(revision_borrador) → `confirmar_borrador` creates the plan's
+    sale → pendiente(pago) → `venta_pagada` → pendiente(firma) → signed upload
+    → completado and the contract in force. A start date that has passed at
+    confirmation, payment or signing asks the client for a new one
+    (`cambiar_fecha_inicio`): contracts are never backdated. The start date is
+    today … +30 days (assumption).
+  - Portal: `/api/portal/tramites/domicilio/formulario/` (availability,
+    plans, ready branches, pre-fill from the client's own records),
+    `POST /api/portal/tramites/domicilio/`, `/api/portal/tramites/` and
+    detail, `PUT …/{id}/domicilio/`, `POST …/{id}/fecha-inicio/`,
+    `POST …/{id}/confirmar/`. Internal notes never reach the portal.
+    Backoffice: read-only `/api/tramites/` (`tramites.view_tramite`) and
+    `POST /api/tramites/{id}/regenerar/` (`tramites.gestionar_tramite`).
+- **Documents** (`documentos/`, HU-19..21): `PlantillaDocumento`,
+  `VersionPlantilla` (immutable once used), `Documento` (one version per
+  generation: Word and PDF with their SHA-256, the frozen snapshot of every
+  printed value and its source ids, the template version) and `Firmante`.
+  - PLT-01 is converted once (`manage.py convertir_plt01`) from the anonymised
+    template (`plantillas_semilla/`) into a docxtpl template; migration 0002
+    loads it as v1. `documentos.plt01.contexto` gives every field one source;
+    the `generar_documento` Celery task renders it with docxtpl and converts
+    it to PDF. Missing data or a failed conversion leaves no document: the
+    case waits for information with the reason for the executive.
+  - Files are private: `/api/portal/tramites/{id}/documentos/` and
+    `…/documentos/{doc}/{pdf|docx|firmado}/` for the owner;
+    `/api/tramites/{id}/documentos/…` for `documentos.view_documento`. The
+    executive uploads the signed PDF (assisted signature) at
+    `POST /api/tramites/{id}/documentos/{doc}/firmado/subir/`
+    (`documentos.subir_documento_firmado`; PDF by content, 10 MB).
 
 ---
 
@@ -389,7 +456,10 @@ Done:
 - the dashboard indicators endpoint with its Excel export;
 - client portal registration and login (HU-03);
 - sales and online payment with Klap Checkout Flex in its sandbox (HU-38,
-  HU-39, HU-40, HU-57).
+  HU-39, HU-40, HU-57);
+- domicilio tributario end to end on the real PLT-01: plans, draft contract,
+  case states, document generation with docxtpl and Gotenberg, assisted
+  signature upload (HU-19..21, HU-24, HU-26..29, HU-61).
 
 Still to build: user management (HU-02) and the audit log (HU-30, RF-15). Until
 the audit log exists, client changes carry `TODO(RF-15)`.
@@ -400,7 +470,8 @@ the audit log exists, client changes carry `TODO(RF-15)`.
 - Whether the generated document must reproduce the templates' layout
   exactly. The templates are known: Word files with `MERGEFIELD`s, anonymized
   as `PLT-01..05` in the evidence repository (`13_plantillas`). The generation
-  library is still to be chosen (spike pending).
+  library is docxtpl (spike, issue #49); PDFs come from LibreOffice
+  (Gotenberg), whose fonts differ slightly from Word's Times New Roman.
 - Exact case states and valid transitions
 - Roles beyond Administrador and Ejecutivo (a "supervisor" appears in HU-05
   and HU-41 but is not confirmed), whether an Ejecutivo sees the dashboard,
