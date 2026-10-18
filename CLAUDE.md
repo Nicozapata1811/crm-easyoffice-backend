@@ -186,6 +186,13 @@ Tests use the simulated converter.
   `users/api/auth_views.py`. httpOnly cookies, CSRF-protected login, one generic
   error for any failed login. Idle timeout from
   `DJANGO_SESSION_INACTIVITY_SECONDS` (assumption, 1800 s).
+- **The Django admin has its own session cookie** (`<SESSION_COOKIE_NAME>_admin`,
+  path `/<ADMIN_URL>`), set by `core.middleware.AdminSessionMiddleware`, so
+  signing in to the admin never replaces the web app's session or the reverse.
+  Tests reach the admin through the `admin_client` fixture in
+  `crm_easyoffice/conftest.py`, which sets both cookies. With
+  `DJANGO_ADMIN_FORCE_ALLAUTH` the admin login happens under `/accounts/`, on
+  the web cookie, so the admin would not see it: keep it off.
 - **Roles are `auth.Group`** (MOD-001 `ROL`). At most one per user, enforced in
   `UserAdminChangeForm`. Do not add a parallel role model; new roles are data.
 - `core/migrations/0002_seed_roles.py` seeds Administrador (RN-31) and Ejecutivo
