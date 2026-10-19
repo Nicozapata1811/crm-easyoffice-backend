@@ -300,11 +300,24 @@ Tests use the simulated converter.
     with `--reuse-db` every later run would start without it.
 - **Dashboard** (`panel/`): `GET /api/panel/indicadores/` and `.../exportar/`
   (`.xlsx` via openpyxl), both requiring `core.view_dashboard`.
-  - Client counts come from `clientes.services.contar_clientes`.
-  - Everything else comes from `panel/ejemplo.py` and is listed in
-    `datos_de_ejemplo` until services, sales and documents have models. Replace
-    each example key with a real service function as those apps land, and drop
-    it from `datos_de_ejemplo`.
+  Both Administrador and Ejecutivo hold it (`core/0003_dashboard_ejecutivo`,
+  ACTA-002 D2-06). Every figure is real and comes from the owning app's
+  services; `panel` imports no model.
+  - Period figures (`desde`…`hasta`, inclusive, local time): clients
+    (`clientes.services.contar_clientes`) and sales paid by `pagada_en`
+    (`ventas.services.ventas_pagadas`, `total_vendido`, `ventas_por_servicio`;
+    `tramites.services.ventas_por_ejecutivo`: the case's contract executive,
+    else a staff `creado_por`, else "En línea (sin ejecutivo)"). Backoffice
+    contracts without an online payment have no `Venta` and are not sales.
+  - Point-in-time figures at `fecha_referencia` = `min(hasta, today)`:
+    `contratos.services.resumen_vencimientos` counts contracts, not lines
+    (auto-renewing ones stay `activos` after their first term, never
+    `vencidos`); `tramites.services.pendientes_por_motivo` and `en_firma` read
+    the state at that day from `EventoTramite`;
+    `documentos.services.contar_pendientes_de_firma` counts each signing case's
+    latest version.
+  - `datos_de_ejemplo` is always `[]`, kept one release for old clients;
+    remove it next.
 
 - **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
   `precio_confirmado=False`), `CicloPago` (único … anual, HU-23), `Venta`,
@@ -338,9 +351,7 @@ Tests use the simulated converter.
     website, unconfirmed. `lineas_de_plan` builds the sale's lines;
     `anular_venta` cancels a pending sale; `venta_pagada` (signal, on commit)
     announces a paid one.
-  - Not built yet: a refund endpoint (refund policy undefined) and real sales
-    figures in the dashboard (`ventas` is still an example key: sales have no
-    executive yet).
+  - Not built yet: a refund endpoint (refund policy undefined).
 - **Cases** (`tramites/`, HU-24): `TipoTramite` (configuration JSONB:
   `servicio`, `marca`, `plantilla`, `requiere_pago`, `requiere_firma`,
   `inicio_max_dias`), `MotivoPendiente` (TA-13 open), `Tramite` and its
@@ -481,8 +492,7 @@ the audit log exists, client changes carry `TODO(RF-15)`.
   (Gotenberg), whose fonts differ slightly from Word's Times New Roman.
 - Exact case states and valid transitions
 - Roles beyond Administrador and Ejecutivo (a "supervisor" appears in HU-05
-  and HU-41 but is not confirmed), whether an Ejecutivo sees the dashboard,
-  and the session inactivity timeout
+  and HU-41 but is not confirmed) and the session inactivity timeout
 - Signature provider API details and credentials
 - Payment provider (Klap is implemented as an assumption), prices, and the
   refund policy

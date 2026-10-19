@@ -217,8 +217,9 @@ confirmados:
 | Administrador (RN-31) | Todos sobre clientes, inmuebles, usuarios y roles, más `core.view_dashboard` |
 | Ejecutivo (RN-32) | Crear, modificar y consultar clientes; consultar inmuebles. **Sin permisos de eliminación** (RF-04) |
 
-Si el Ejecutivo puede ver el panel operativo no está definido; por ahora no
-puede. Cada aplicación nueva asigna sus permisos a estos roles en su propia
+Ambos roles ven el panel operativo (`core.view_dashboard`): el Ejecutivo lo
+recibe en `core/0003_dashboard_ejecutivo` (ACTA-002, D2-06).
+Cada aplicación nueva asigna sus permisos a estos roles en su propia
 migración de datos.
 
 El registro de cada ingreso en auditoría (criterio de HU-01) queda pendiente del
@@ -425,24 +426,51 @@ obligatorios, y `desde` no puede ser posterior a `hasta` (si no, `400`).
 ```json
 {
   "periodo": {"desde": "2026-09-01", "hasta": "2026-09-30"},
+  "fecha_referencia": "2026-09-30",
   "clientes": {"total": 0, "nuevos": 0},
   "servicios": {"activos": 0, "por_vencer": 0, "vencidos": 0, "dias_aviso": 30},
   "ventas": {
     "moneda": "CLP",
     "total": 0,
     "por_servicio": [{"servicio": "Domicilio tributario", "monto": 0, "cantidad": 0}],
-    "por_ejecutivo": [{"ejecutivo": "Nombre", "monto": 0, "cantidad": 0}]
+    "por_ejecutivo": [{"ejecutivo": "En línea (sin ejecutivo)", "monto": 0, "cantidad": 0}]
   },
   "tramites_pendientes": 0,
+  "tramites_pendientes_por_motivo": [{"motivo": "firma", "nombre": "Firma", "cantidad": 0}],
   "documentos_pendientes_firma": 0,
-  "datos_de_ejemplo": ["servicios", "ventas", "tramites_pendientes", "documentos_pendientes_firma"]
+  "datos_de_ejemplo": []
 }
 ```
 
-- `clientes` es real: `total` cuenta los clientes registrados hasta `hasta`, y
-  `nuevos` los registrados en el período.
-- Las claves de `datos_de_ejemplo` traen valores de ejemplo hasta que existan los
-  servicios contratados y los pagos (HU-10, HU-48). El Excel los rotula igual.
+Todas las cifras son reales; cada aplicación entrega las suyas por sus servicios.
+
+- **Período** (`desde` … `hasta`, ambos inclusive en hora de Chile): `clientes`
+  (`total` hasta `hasta`, `nuevos` en el período) y `ventas`.
+- **A una fecha** (`fecha_referencia`, que es `hasta` o hoy si `hasta` es
+  posterior): `servicios`, `tramites_pendientes` y `documentos_pendientes_firma`.
+- `servicios` cuenta **contratos** (un folio, un vencimiento), no sus líneas.
+  `activos` son los vigentes a la fecha (`contratos.services.contratos_vigentes`);
+  `por_vencer`, los que vencen dentro de `dias_aviso` días (ambos extremos
+  incluidos) y no tienen renovación; `vencidos`, los vencidos sin renovación
+  automática que nadie terminó ni renovó. Borradores, terminados y anulados no
+  cuentan. Un contrato con renovación automática sigue activo tras su primer
+  término y no vuelve a aparecer por vencer (RN-10, TA-17 abiertos).
+- `ventas` suma las ventas **pagadas** en el período por `pagada_en`;
+  reembolsadas y anuladas no cuentan. `por_servicio` agrupa por servicio del
+  catálogo (`cantidad` = ventas que lo incluyen). `por_ejecutivo` usa el
+  ejecutivo responsable del contrato del trámite de la venta, si no quien abrió
+  el trámite (si es personal); el resto va a "En línea (sin ejecutivo)". Los
+  contratos registrados en el backoffice sin pago en línea no tienen venta y no
+  aparecen.
+- `tramites_pendientes` y su desglose por motivo (RF-47) se leen del historial
+  de estados (`EventoTramite`), así que un período pasado muestra lo que estaba
+  pendiente entonces.
+- `documentos_pendientes_firma` cuenta la última versión de cada trámite que
+  espera firma a la fecha.
+- `datos_de_ejemplo` queda vacío y se elimina en la próxima versión.
+
+El Excel tiene las mismas hojas; la columna Detalle indica la fecha de las
+cifras a una fecha.
 
 `dias_aviso` es la ventana de "por vencer"; 30 días es una suposición pendiente
 de validar (HU-42 propone 60, 30, 15 y 7).
