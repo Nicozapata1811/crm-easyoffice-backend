@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import TYPE_CHECKING
+from typing import Any
 
 from factory import LazyAttribute
 from factory import Sequence
@@ -13,6 +15,10 @@ from crm_easyoffice.clientes.tests.factories import ClienteFactory
 from crm_easyoffice.ventas.models import OrdenPago
 from crm_easyoffice.ventas.models import Servicio
 from crm_easyoffice.ventas.models import Venta
+from crm_easyoffice.ventas.services import crear_venta
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class ServicioFactory(DjangoModelFactory[Servicio]):
@@ -41,3 +47,16 @@ class OrdenPagoFactory(DjangoModelFactory[OrdenPago]):
 
     class Meta:
         model = OrdenPago
+
+
+def venta_pagada(
+    pagada_en: datetime,
+    *lineas: tuple[Servicio, int],
+    estado: str = Venta.Estado.PAGADA,
+    **campos: Any,
+) -> Venta:
+    """A sale of ``lineas`` at list price, paid at ``pagada_en``, left in ``estado``."""
+    venta = crear_venta(campos.pop("cliente", None) or ClienteFactory.create(), lineas)
+    Venta.objects.filter(pk=venta.pk).update(estado=estado, pagada_en=pagada_en)
+    venta.refresh_from_db()
+    return venta
