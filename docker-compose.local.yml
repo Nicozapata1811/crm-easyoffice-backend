@@ -54,7 +54,7 @@ services:
   # Converts the generated contracts from Word to PDF (LibreOffice). Reached
   # only by the Celery worker on the compose network; no published port.
   gotenberg:
-    image: docker.io/gotenberg/gotenberg:8.37.0-libreoffice
+    image: docker.io/gotenberg/gotenberg:8.38.1-libreoffice
     container_name: crm_easyoffice_local_gotenberg
 
   celeryworker:
