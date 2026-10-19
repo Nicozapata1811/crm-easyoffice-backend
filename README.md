@@ -95,6 +95,8 @@ Ejecutar las pruebas:
 docker compose -f docker-compose.local.yml run --rm django pytest
 ```
 
+La suite tiene 546 pruebas.
+
 | Servicio | URL |
 |---|---|
 | Aplicación | http://localhost:8000 |
@@ -215,7 +217,7 @@ confirmados:
 | Rol | Permisos |
 |---|---|
 | Administrador (RN-31) | Todos sobre clientes, inmuebles, usuarios y roles, más `core.view_dashboard` |
-| Ejecutivo (RN-32) | Crear, modificar y consultar clientes; consultar inmuebles. **Sin permisos de eliminación** (RF-04) |
+| Ejecutivo (RN-32) | Crear, modificar y consultar clientes; consultar inmuebles; `core.view_dashboard`. **Sin permisos de eliminación** (RF-04) |
 
 Ambos roles ven el panel operativo (`core.view_dashboard`): el Ejecutivo lo
 recibe en `core/0003_dashboard_ejecutivo` (ACTA-002, D2-06).
@@ -415,8 +417,11 @@ hay endpoint de reembolso: Easy Office aún no define cuándo se devuelve un pag
 
 ### Panel operativo (RF-14, HU-41)
 
-Ambas rutas requieren `core.view_dashboard`. Los dos parámetros son
-obligatorios, y `desde` no puede ser posterior a `hasta` (si no, `400`).
+Ambas rutas requieren `core.view_dashboard`, que tienen el Administrador y el
+Ejecutivo (el Ejecutivo lo recibe en `core/0003_dashboard_ejecutivo`,
+ACTA-002 D2-06). Un cliente del portal o un usuario anónimo recibe `403`. Los
+dos parámetros son obligatorios, y `desde` no puede ser posterior a `hasta` (si
+no, `400`).
 
 | Método y ruta | Respuesta |
 |---|---|
@@ -442,7 +447,10 @@ obligatorios, y `desde` no puede ser posterior a `hasta` (si no, `400`).
 }
 ```
 
-Todas las cifras son reales; cada aplicación entrega las suyas por sus servicios.
+Todas las cifras son reales (ya no existe `panel/ejemplo.py`); cada aplicación
+entrega las suyas por sus servicios. Claves nuevas: `fecha_referencia` y
+`tramites_pendientes_por_motivo` (`[{motivo, nombre, cantidad}]`).
+`tramites_pendientes` es la suma del desglose.
 
 - **Período** (`desde` … `hasta`, ambos inclusive en hora de Chile): `clientes`
   (`total` hasta `hasta`, `nuevos` en el período) y `ventas`.
@@ -469,8 +477,9 @@ Todas las cifras son reales; cada aplicación entrega las suyas por sus servicio
   espera firma a la fecha.
 - `datos_de_ejemplo` queda vacío y se elimina en la próxima versión.
 
-El Excel tiene las mismas hojas; la columna Detalle indica la fecha de las
-cifras a una fecha.
+El Excel tiene las mismas hojas y columnas y no rotula nada como "Valor de
+ejemplo". La columna Detalle dice "Al dd-mm-aaaa" en las cifras a una fecha y
+"Pagadas en línea, en el período" en las ventas.
 
 `dias_aviso` es la ventana de "por vencer"; 30 días es una suposición pendiente
 de validar (HU-42 propone 60, 30, 15 y 7).
