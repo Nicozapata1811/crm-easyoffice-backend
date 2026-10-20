@@ -17,8 +17,17 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 from typing import Any
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Case
+from django.db.models import Count
+from django.db.models import OuterRef
+from django.db.models import Q
+from django.db.models import Subquery
+from django.db.models import Sum
+from django.db.models import When
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
@@ -49,6 +58,8 @@ from .models import Tramite
 from .signals import documento_requerido
 
 if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
     from crm_easyoffice.clientes.models import Cliente
     from crm_easyoffice.inmuebles.models import Oficina
     from crm_easyoffice.users.models import User
@@ -578,3 +589,104 @@ def reintentar_documento(tramite: Tramite, usuario: User | None = None) -> Trami
         )
         _pedir_documento(tramite)
     return tramite
+
+
+def _con_situacion_a(fecha: date) -> QuerySet[Tramite]:
+    """Cases annotated with their state and reason at the end of ``fecha``.
+
+    Read from the append-only history: the latest move on or before that
+    day, in local time. A case opened later has neither.
+    """
+    ultimo = EventoTramite.objects.filter(
+        tramite=OuterRef("pk"),
+        fecha__date__lte=fecha,
+    ).order_by("-fecha", "-pk")
+    return Tramite.objects.annotate(
+        estado_a=Subquery(ultimo.values("estado_nuevo")[:1]),
+        motivo_a=Subquery(ultimo.values("motivo_nuevo")[:1]),
+    )
+
+
+def pendientes_por_motivo(fecha: date) -> list[dict[str, Any]]:
+    """Cases pending at the end of ``fecha``, per reason, most cases first (RF-47).
+
+    Returns:
+        One ``{motivo, nombre, cantidad}`` per reason with pending cases.
+    """
+    filas = list(
+        _con_situacion_a(fecha)
+        .filter(estado_a=PENDIENTE)
+        .values("motivo_a")
+        .annotate(cantidad=Count("pk"))
+        .order_by("-cantidad", "motivo_a"),
+    )
+    nombres = dict(
+        MotivoPendiente.objects.filter(
+            codigo__in=[fila["motivo_a"] for fila in filas],
+        ).values_list("codigo", "nombre"),
+    )
+    return [
+        {
+            "motivo": fila["motivo_a"],
+            "nombre": nombres.get(fila["motivo_a"], fila["motivo_a"]),
+            "cantidad": fila["cantidad"],
+        }
+        for fila in filas
+    ]
+
+
+def en_firma(fecha: date) -> QuerySet[Tramite]:
+    """Cases waiting for a signature at the end of ``fecha``.
+
+    A case reaches this step only once its document exists: after the
+    client confirms the draft and, when the type requires it, pays.
+    """
+    return _con_situacion_a(fecha).filter(estado_a=PENDIENTE, motivo_a=FIRMA)
+
+
+def ventas_por_ejecutivo(ventas: QuerySet[Venta]) -> list[dict[str, Any]]:
+    """Amount and number of sales per executive, largest amount first (RF-14).
+
+    The executive is the one responsible for the contract of the sale's
+    case, else the staff member who opened the case. A sale with neither
+    (bought in the portal, or with no case) has ``ejecutivo`` None. Sales
+    are linked to contracts only through their case (MD-10).
+
+    ASSUMPTION: pending validation with Easy Office. Who an online sale
+    belongs to is not defined; portal contracts have no executive yet.
+    """
+    abierto_por_staff = Q(
+        creado_por__isnull=False,
+        creado_por__cuenta_cliente__isnull=True,
+    )
+    responsable = (
+        Tramite.objects.filter(venta=OuterRef("pk"))
+        .order_by("pk")
+        .annotate(
+            responsable=Coalesce(
+                "contrato__ejecutivo_responsable_id",
+                Case(When(abierto_por_staff, then="creado_por_id")),
+            ),
+        )
+        .values("responsable")[:1]
+    )
+    filas = list(
+        ventas.annotate(ejecutivo_id=Subquery(responsable))
+        .values("ejecutivo_id")
+        .annotate(monto=Sum("total"), cantidad=Count("pk"))
+        .order_by("-monto", "ejecutivo_id"),
+    )
+    nombres = {
+        pk: nombre or email
+        for pk, nombre, email in get_user_model()
+        .objects.filter(pk__in=[fila["ejecutivo_id"] for fila in filas])
+        .values_list("pk", "name", "email")
+    }
+    return [
+        {
+            "ejecutivo": nombres.get(fila["ejecutivo_id"]),
+            "monto": int(fila["monto"]),
+            "cantidad": fila["cantidad"],
+        }
+        for fila in filas
+    ]

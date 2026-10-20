@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date
+from datetime import datetime
 from datetime import timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.utils import timezone
@@ -19,9 +22,13 @@ from crm_easyoffice.ventas.services import VentaNoPagableError
 from crm_easyoffice.ventas.services import aplicar_resultado
 from crm_easyoffice.ventas.services import crear_venta
 from crm_easyoffice.ventas.services import iniciar_pago
+from crm_easyoffice.ventas.services import total_vendido
+from crm_easyoffice.ventas.services import ventas_pagadas
+from crm_easyoffice.ventas.services import ventas_por_servicio
 from crm_easyoffice.ventas.tests.factories import OrdenPagoFactory
 from crm_easyoffice.ventas.tests.factories import ServicioFactory
 from crm_easyoffice.ventas.tests.factories import VentaFactory
+from crm_easyoffice.ventas.tests.factories import venta_pagada
 
 pytestmark = pytest.mark.django_db
 
@@ -211,3 +218,61 @@ class TestAplicarResultado:
         assert orden.estado == Estado.ERROR
         assert orden.venta.estado == Venta.Estado.PENDIENTE_PAGO
         assert not Pago.objects.exists()
+
+
+SANTIAGO = ZoneInfo("America/Santiago")
+SEPTIEMBRE = (date(2026, 9, 1), date(2026, 9, 30))
+
+
+def en_santiago(*partes: int) -> datetime:
+    return datetime(*partes, tzinfo=SANTIAGO)
+
+
+class TestVentasDelPeriodo:
+    def test_period_is_inclusive_in_local_time(self):
+        servicio = ServicioFactory.create()
+        venta_pagada(en_santiago(2026, 8, 31, 23, 30), (servicio, 1))
+        primera = venta_pagada(en_santiago(2026, 9, 1, 0, 30), (servicio, 1))
+        ultima = venta_pagada(en_santiago(2026, 9, 30, 23, 30), (servicio, 1))
+        venta_pagada(en_santiago(2026, 10, 1, 0, 30), (servicio, 1))
+
+        assert set(ventas_pagadas(*SEPTIEMBRE)) == {primera, ultima}
+
+    @pytest.mark.parametrize(
+        "estado",
+        [
+            Venta.Estado.REEMBOLSADA,
+            Venta.Estado.ANULADA,
+            Venta.Estado.PENDIENTE_PAGO,
+        ],
+    )
+    def test_only_paid_sales_count(self, estado):
+        servicio = ServicioFactory.create()
+        venta_pagada(en_santiago(2026, 9, 10, 12), (servicio, 1), estado=estado)
+
+        ventas = ventas_pagadas(*SEPTIEMBRE)
+
+        assert not ventas.exists()
+        assert total_vendido(ventas) == 0
+        assert ventas_por_servicio(ventas) == []
+
+    def test_breakdown_by_service_adds_up_to_the_total(self):
+        domicilio = ServicioFactory.create(
+            nombre="Servicio A de prueba",
+            precio_base=Decimal(30000),
+        )
+        firma = ServicioFactory.create(
+            nombre="Servicio B de prueba",
+            precio_base=Decimal(5000),
+        )
+        venta_pagada(en_santiago(2026, 9, 5, 10), (domicilio, 1), (firma, 1))
+        venta_pagada(en_santiago(2026, 9, 6, 10), (domicilio, 1))
+        venta_pagada(en_santiago(2026, 9, 7, 10), (firma, 2))
+
+        ventas = ventas_pagadas(*SEPTIEMBRE)
+
+        assert total_vendido(ventas) == 75000  # noqa: PLR2004
+        assert ventas_por_servicio(ventas) == [
+            {"servicio": "Servicio A de prueba", "monto": 60000, "cantidad": 2},
+            {"servicio": "Servicio B de prueba", "monto": 15000, "cantidad": 2},
+        ]

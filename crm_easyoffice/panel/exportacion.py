@@ -17,11 +17,7 @@ if TYPE_CHECKING:
 FORMATO_CLP = '"$"#,##0'
 FORMATO_FECHA = "dd-mm-yyyy"
 FORMATO_FECHA_HORA = "dd-mm-yyyy hh:mm"
-VALOR_DE_EJEMPLO = "Valor de ejemplo"
-AVISO_DE_EJEMPLO = (
-    "Incluye valores de ejemplo: el sistema aún no registra servicios, "
-    "ventas, trámites ni documentos."
-)
+VENTAS_EN_LINEA = "Pagadas en línea, en el período"
 NEGRITA = Font(bold=True)
 
 
@@ -34,7 +30,7 @@ def libro_indicadores(indicadores: dict[str, Any]) -> bytes:
     """Build the workbook for the payload of ``calcular_indicadores``.
 
     Sheets: Resumen with the eight RF-14 indicators, then sales by service and
-    by executive. Example figures are labelled as such.
+    by executive. Point-in-time rows say the day they were read at.
     """
     libro = Workbook()
     resumen = libro.active
@@ -43,13 +39,12 @@ def libro_indicadores(indicadores: dict[str, Any]) -> bytes:
     _escribir_resumen(resumen, indicadores)
 
     ventas = indicadores["ventas"]
-    de_ejemplo = "ventas" in indicadores["datos_de_ejemplo"]
     for titulo, clave, filas in (
         ("Servicio", "servicio", ventas["por_servicio"]),
         ("Ejecutivo", "ejecutivo", ventas["por_ejecutivo"]),
     ):
         hoja = libro.create_sheet(f"Ventas por {clave}")
-        _escribir_ventas(hoja, titulo, clave, filas, de_ejemplo=de_ejemplo)
+        _escribir_ventas(hoja, titulo, clave, filas)
 
     salida = BytesIO()
     libro.save(salida)
@@ -67,10 +62,6 @@ def _escribir_resumen(hoja: Worksheet, indicadores: dict[str, Any]) -> None:
         hoja.cell(fila, 2).number_format = FORMATO_FECHA
     hoja.cell(4, 2).number_format = FORMATO_FECHA_HORA
 
-    ejemplo = set(indicadores["datos_de_ejemplo"])
-    if ejemplo:
-        hoja.append([AVISO_DE_EJEMPLO])
-        hoja.cell(hoja.max_row, 1).font = Font(italic=True)
     hoja.append([])
 
     hoja.append(["Indicador", "Valor", "Detalle"])
@@ -78,10 +69,7 @@ def _escribir_resumen(hoja: Worksheet, indicadores: dict[str, Any]) -> None:
         celda.font = NEGRITA
 
     for etiqueta, valor, clave, detalle in _filas_resumen(indicadores):
-        notas = [detalle] if detalle else []
-        if clave in ejemplo:
-            notas.append(VALOR_DE_EJEMPLO)
-        hoja.append([etiqueta, valor, " · ".join(notas)])
+        hoja.append([etiqueta, valor, detalle])
         if clave == "ventas":
             hoja.cell(hoja.max_row, 2).number_format = FORMATO_CLP
 
@@ -93,29 +81,35 @@ def _escribir_resumen(hoja: Worksheet, indicadores: dict[str, Any]) -> None:
 def _filas_resumen(indicadores: dict[str, Any]) -> list[tuple[str, int, str, str]]:
     clientes = indicadores["clientes"]
     servicios = indicadores["servicios"]
+    al = f"Al {date.fromisoformat(indicadores['fecha_referencia']):%d-%m-%Y}"
     return [
         ("Total de clientes", clientes["total"], "clientes", ""),
         ("Clientes nuevos", clientes["nuevos"], "clientes", "En el período"),
-        ("Servicios activos", servicios["activos"], "servicios", ""),
+        ("Servicios activos", servicios["activos"], "servicios", al),
         (
             "Servicios por vencer",
             servicios["por_vencer"],
             "servicios",
-            f"Próximos {servicios['dias_aviso']} días",
+            f"Próximos {servicios['dias_aviso']} días, {al.lower()}",
         ),
-        ("Servicios vencidos", servicios["vencidos"], "servicios", ""),
-        ("Ventas totales (CLP)", indicadores["ventas"]["total"], "ventas", ""),
+        ("Servicios vencidos", servicios["vencidos"], "servicios", al),
+        (
+            "Ventas totales (CLP)",
+            indicadores["ventas"]["total"],
+            "ventas",
+            VENTAS_EN_LINEA,
+        ),
         (
             "Trámites pendientes",
             indicadores["tramites_pendientes"],
             "tramites_pendientes",
-            "",
+            al,
         ),
         (
             "Documentos pendientes de firma",
             indicadores["documentos_pendientes_firma"],
             "documentos_pendientes_firma",
-            "",
+            al,
         ),
     ]
 
@@ -125,8 +119,6 @@ def _escribir_ventas(
     titulo: str,
     clave: str,
     filas: list[dict[str, Any]],
-    *,
-    de_ejemplo: bool,
 ) -> None:
     hoja.append([titulo, "Cantidad", "Monto (CLP)"])
     for fila in filas:
@@ -142,10 +134,6 @@ def _escribir_ventas(
         celda.font = NEGRITA
     for (celda,) in hoja.iter_rows(min_row=2, min_col=3, max_col=3):
         celda.number_format = FORMATO_CLP
-    if de_ejemplo:
-        hoja.append([])
-        hoja.append(["Valores de ejemplo: no son ventas reales."])
-        hoja.cell(hoja.max_row, 1).font = Font(italic=True)
 
     hoja.column_dimensions["A"].width = 30
     hoja.column_dimensions["B"].width = 12

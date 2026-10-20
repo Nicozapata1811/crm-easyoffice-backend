@@ -14,8 +14,15 @@ from crm_easyoffice.clientes.tests.factories import EmpresaFactory
 from crm_easyoffice.clientes.tests.factories import synthetic_rut
 from crm_easyoffice.configuracion.tests.factories import preparar_config_contrato
 from crm_easyoffice.inmuebles.tests.factories import preparar_sucursal_domicilio
+from crm_easyoffice.tramites.models import EventoTramite
+from crm_easyoffice.tramites.models import MotivoPendiente
+from crm_easyoffice.tramites.models import TipoTramite
+from crm_easyoffice.tramites.models import Tramite
+from crm_easyoffice.tramites.services import TIPO_DOMICILIO
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from crm_easyoffice.clientes.models import CuentaCliente
     from crm_easyoffice.inmuebles.models import Oficina
 
@@ -73,3 +80,34 @@ def payload_domicilio(cliente, sucursal: Oficina, **extra: Any) -> dict[str, Any
     personeria["fecha_instrumento"] = str(personeria["fecha_instrumento"])
     datos["fecha_inicio"] = str(datos["fecha_inicio"])
     return datos
+
+
+Paso = tuple["datetime", str, str | None]
+
+
+def tramite_con_historia(*pasos: Paso, **campos: Any) -> Tramite:
+    """A domicile case that went through ``pasos`` (when, estado, motivo), in order.
+
+    Built directly, outside the flow, so each move can be dated: the case
+    ends in the last step's state, and the history records every step.
+    """
+    _, estado, motivo = pasos[-1]
+    campos.setdefault("cliente", ClienteFactory.create())
+    tramite = Tramite.objects.create(
+        tipo=TipoTramite.objects.get(codigo=TIPO_DOMICILIO),
+        estado=estado,
+        motivo=MotivoPendiente.objects.get(codigo=motivo) if motivo else None,
+        **campos,
+    )
+    anterior: tuple[str, str] = ("", "")
+    for fecha, estado_nuevo, motivo_nuevo in pasos:
+        evento = EventoTramite.objects.create(
+            tramite=tramite,
+            estado_anterior=anterior[0],
+            motivo_anterior=anterior[1],
+            estado_nuevo=estado_nuevo,
+            motivo_nuevo=motivo_nuevo or "",
+        )
+        EventoTramite.objects.filter(pk=evento.pk).update(fecha=fecha)
+        anterior = (estado_nuevo, motivo_nuevo or "")
+    return tramite

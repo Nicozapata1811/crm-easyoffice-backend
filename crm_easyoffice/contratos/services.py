@@ -11,6 +11,9 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Count
+from django.db.models import Exists
+from django.db.models import OuterRef
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -415,16 +418,70 @@ def _validar_representante(
         )
 
 
+def _en_vigor(fecha: date) -> Q:
+    """A started vigente contract that has not ended on ``fecha``."""
+    return (Q(terminado_en__isnull=True) | Q(terminado_en__gte=fecha)) & (
+        Q(renovacion_automatica=True) | Q(fecha_vencimiento__gte=fecha)
+    )
+
+
+def _iniciados(fecha: date) -> QuerySet[Contrato]:
+    return Contrato.objects.filter(
+        estado=Contrato.Estado.VIGENTE,
+        fecha_inicio__lte=fecha,
+    )
+
+
 def contratos_vigentes(fecha: date) -> QuerySet[Contrato]:
     """Contracts in force on ``fecha``.
 
     A contract that renews automatically stays in force after its first
     expiry until it is terminated.
     """
+    return _iniciados(fecha).filter(_en_vigor(fecha))
+
+
+def resumen_vencimientos(fecha: date, dias_aviso: int) -> dict[str, int]:
+    """Count contracts in force, about to expire and expired on ``fecha`` (RF-14).
+
+    Drafts, terminated and annulled contracts never count, nor does a
+    contract that has not started. ``activos`` are the contracts in force
+    (``contratos_vigentes``); ``por_vencer`` those of them whose term ends
+    within ``dias_aviso`` days, both ends inclusive; ``vencidos`` the
+    contracts past their expiry that do not renew automatically and were
+    neither terminated nor renewed, which an executive must act on. A
+    contract counts as renewed when a non-annulled contract points at it
+    (RN-10).
+
+    ASSUMPTION: pending validation with Easy Office. The dashboard counts
+    contracts (one folio, one expiry) rather than their service lines. An
+    automatically renewing contract stays in force after its first term,
+    as in ``contratos_vigentes``, and is never "por vencer" again: its
+    rolling term end is not modelled until renewals are (RN-10, TA-17).
+    """
+    renovado = Exists(
+        Contrato.objects.filter(contrato_anterior=OuterRef("pk")).exclude(
+            estado=Contrato.Estado.ANULADO,
+        ),
+    )
+    en_vigor = _en_vigor(fecha)
+    sin_renovar = Q(renovado=False)
+    en_aviso = Q(
+        fecha_vencimiento__range=(fecha, fecha + timedelta(days=dias_aviso)),
+    )
+    vencido = Q(
+        renovacion_automatica=False,
+        fecha_vencimiento__lt=fecha,
+        terminado_en__isnull=True,
+    )
     return (
-        Contrato.objects.filter(estado=Contrato.Estado.VIGENTE, fecha_inicio__lte=fecha)
-        .filter(Q(terminado_en__isnull=True) | Q(terminado_en__gte=fecha))
-        .filter(Q(renovacion_automatica=True) | Q(fecha_vencimiento__gte=fecha))
+        _iniciados(fecha)
+        .annotate(renovado=renovado)
+        .aggregate(
+            activos=Count("pk", filter=en_vigor),
+            por_vencer=Count("pk", filter=en_vigor & sin_renovar & en_aviso),
+            vencidos=Count("pk", filter=sin_renovar & vencido),
+        )
     )
 
 

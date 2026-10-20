@@ -10,9 +10,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count
+from django.db.models import Sum
 from django.dispatch import Signal
 from django.utils import timezone
 
@@ -29,6 +32,7 @@ from .models import Venta
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from datetime import date
     from decimal import Decimal
 
     from django.db.models import QuerySet
@@ -337,3 +341,44 @@ def ciclos_pago_activos() -> QuerySet[CicloPago]:
 def servicios_contratables() -> QuerySet[Servicio]:
     """Active services an executive may put in a contract, portal or not."""
     return Servicio.objects.filter(activo=True).select_related("ciclo_pago_default")
+
+
+def ventas_pagadas(desde: date, hasta: date) -> QuerySet[Venta]:
+    """Sales paid within a period, both bounds inclusive in local time (RF-14).
+
+    Refunded and annulled sales are left out, and so are sales still waiting
+    for payment.
+    """
+    return Venta.objects.filter(
+        estado=Venta.Estado.PAGADA,
+        pagada_en__date__range=(desde, hasta),
+    )
+
+
+def total_vendido(ventas: QuerySet[Venta]) -> int:
+    """Sum of the sales' totals in CLP."""
+    return int(ventas.aggregate(total=Sum("total"))["total"] or 0)
+
+
+def ventas_por_servicio(ventas: QuerySet[Venta]) -> list[dict[str, Any]]:
+    """Amount and number of sales per catalogue service, largest amount first.
+
+    Lines are grouped by their catalogue service, not by the name copied
+    into the line (a plan line reads "Domicilio tributario · Plan anual").
+    ``cantidad`` counts the sales that include the service, so a sale with
+    two services counts once under each.
+    """
+    filas = (
+        ItemVenta.objects.filter(venta__in=ventas)
+        .values("servicio_id", "servicio__nombre")
+        .annotate(monto=Sum("subtotal"), cantidad=Count("venta", distinct=True))
+        .order_by("-monto", "servicio__nombre")
+    )
+    return [
+        {
+            "servicio": fila["servicio__nombre"],
+            "monto": int(fila["monto"]),
+            "cantidad": fila["cantidad"],
+        }
+        for fila in filas
+    ]

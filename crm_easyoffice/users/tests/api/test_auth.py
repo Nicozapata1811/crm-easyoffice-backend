@@ -126,7 +126,7 @@ class TestSession:
 
 @pytest.mark.django_db
 class TestRoles:
-    def test_ejecutivo_cannot_delete_or_see_the_dashboard(self):
+    def test_ejecutivo_cannot_delete_but_sees_the_dashboard(self):
         codenames = set(
             Group.objects.get(name=seed.EJECUTIVO).permissions.values_list(
                 "codename",
@@ -136,7 +136,7 @@ class TestRoles:
 
         assert codenames
         assert not {c for c in codenames if c.startswith("delete_")}
-        assert "view_dashboard" not in codenames
+        assert "view_dashboard" in codenames  # ACTA-002, D2-06
         assert {"add_cliente", "change_cliente", "view_cliente"} <= codenames
 
     def test_seed_is_idempotent(self):
