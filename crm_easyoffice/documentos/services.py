@@ -34,6 +34,9 @@ from crm_easyoffice.tramites.services import en_firma
 from crm_easyoffice.tramites.services import verificar_para_firma
 
 from . import plt01
+from . import plt02
+from .comun import Contexto
+from .comun import DatosIncompletosError
 from .models import Documento
 from .models import Firmante
 from .models import VersionPlantilla
@@ -48,7 +51,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Context builders by template code. A new template adds its own.
-CONTEXTOS = {"PLT-01": plt01.contexto}
+CONTEXTOS = {"PLT-01": plt01.contexto, "PLT-02": plt02.contexto}
 
 # Two identity-card images side by side fit the page at 60 mm each, also with
 # LibreOffice's font metrics (70 mm fit in Word but stacked in the PDF).
@@ -84,7 +87,7 @@ def version_vigente(codigo: str) -> VersionPlantilla:
     return version
 
 
-def renderizar(version: VersionPlantilla, contexto: plt01.Contexto) -> bytes:
+def renderizar(version: VersionPlantilla, contexto: Contexto) -> bytes:
     """Fill the template version with the context; returns the Word file."""
     with version.archivo.open("rb") as archivo:
         plantilla = DocxTemplate(io.BytesIO(archivo.read()))
@@ -116,7 +119,7 @@ def generar(tramite: Tramite) -> Documento | None:
         contexto = CONTEXTOS[codigo](tramite)
         docx = renderizar(version, contexto)
         pdf = get_pdf_converter().docx_a_pdf(docx, nombre=f"{tramite.folio}.docx")
-    except plt01.DatosIncompletosError as error:
+    except DatosIncompletosError as error:
         documento_fallido(tramite, "\n".join(error.problemas))
         return None
     except KeyError, VersionPlantilla.DoesNotExist:

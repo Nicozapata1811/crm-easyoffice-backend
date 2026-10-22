@@ -53,7 +53,10 @@ def make_run(value: str, rpr: str = "") -> str:
 
 
 def fields(xml: str) -> list[Field]:
-    """Complex MERGEFIELDs (begin … separate … result … end), not nested."""
+    """Complex MERGEFIELDs (begin … separate … result … end), not nested.
+
+    A field Word never merged has no result: begin … instruction … end.
+    """
     found: list[Field] = []
     state, start, instr, rpr = None, 0, "", ""
     for m in runs(xml):
@@ -63,13 +66,13 @@ def fields(xml: str) -> list[Field]:
             state, start, instr, rpr = "instr", m.start(), "", ""
         elif state == "instr" and kind and kind.group(1) == "separate":
             state = "result"
-        elif state == "instr":
-            instr += "".join(INSTR_RE.findall(r))
-        elif state == "result" and kind and kind.group(1) == "end":
+        elif state in {"instr", "result"} and kind and kind.group(1) == "end":
             parts = instr.split()
             if parts and parts[0] == "MERGEFIELD":
                 found.append(Field(start, m.end(), parts[1].strip('"'), rpr))
             state = None
+        elif state == "instr":
+            instr += "".join(INSTR_RE.findall(r))
         elif state == "result" and not rpr:
             found_rpr = RPR_RE.search(r)
             rpr = found_rpr.group(0) if found_rpr else ""
