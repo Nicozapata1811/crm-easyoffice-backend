@@ -82,6 +82,54 @@ class FechaInicioSerializer(serializers.Serializer):
     fecha_inicio = serializers.DateField()
 
 
+class LineaElegidaSerializer(serializers.Serializer):
+    """A line without a plan: its cycle, and the agreed price if it has no list one."""
+
+    servicio = serializers.SlugField()
+    ciclo_pago = serializers.SlugField(required=False, allow_null=True, default=None)
+    precio = serializers.DecimalField(
+        **MONTO,
+        min_value=1,
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
+
+class EdicionBackofficeSerializer(serializers.Serializer):
+    """A request an executive files or edits for a client (e.g. PLT-02).
+
+    ``sucursal`` and ``bodega`` are the property roles a type's lines name
+    (inmuebles.services.ROLES); the type decides which it needs.
+    """
+
+    empresa = EmpresaContratanteSerializer()
+    representante = RepresentanteContratanteSerializer()
+    personeria = PersoneriaSerializer()
+    email_aviso = serializers.EmailField()
+    movil_aviso = serializers.RegexField(
+        MOVIL,
+        error_messages={"invalid": _("Enter a mobile with 9 digits, starting with 9.")},
+    )
+    fecha_inicio = serializers.DateField()
+    duracion_meses = serializers.IntegerField(min_value=1, required=False)
+    plan = serializers.SlugField(required=False)
+    sucursal = serializers.IntegerField(required=False)
+    bodega = serializers.IntegerField(required=False)
+    lineas = LineaElegidaSerializer(many=True, required=False, default=list)
+
+
+class SolicitudBackofficeSerializer(EdicionBackofficeSerializer):
+    tipo = serializers.SlugField()
+    cliente = serializers.IntegerField()
+
+
+class SolicitudPortalSerializer(EdicionBackofficeSerializer):
+    """A request a client files in the portal for a type sold by plan (PLT-02)."""
+
+    tipo = serializers.SlugField()
+
+
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
@@ -125,6 +173,74 @@ class FormularioSerializer(serializers.Serializer):
     datos = serializers.JSONField(allow_null=True)
 
 
+class InmuebleSerializer(serializers.Serializer):
+    id = serializers.IntegerField(source="pk")
+    tipo = serializers.CharField()
+    codigo = serializers.CharField(source="codigo_sucursal", allow_null=True)
+    nombre = serializers.CharField()
+    direccion = serializers.CharField(source="direccion_completa")
+    comuna = serializers.CharField()
+    region = serializers.CharField()
+
+
+class LineaFormularioSerializer(serializers.Serializer):
+    """A line of the type: its service as the catalogue holds it, and its role."""
+
+    servicio = serializers.CharField(source="servicio.codigo")
+    nombre = serializers.CharField(source="servicio.nombre")
+    precio_base = serializers.DecimalField(
+        source="servicio.precio_base",
+        allow_null=True,
+        **MONTO,
+    )
+    precio_confirmado = serializers.BooleanField(source="servicio.precio_confirmado")
+    ciclo_pago_default = serializers.CharField(
+        source="servicio.ciclo_pago_default.codigo",
+        allow_null=True,
+        default=None,
+    )
+    inmueble = serializers.CharField()
+
+
+class CicloSerializer(serializers.Serializer):
+    codigo = serializers.CharField()
+    nombre = serializers.CharField()
+
+
+class FormularioBackofficeSerializer(serializers.Serializer):
+    """What an executive's request form offers; ``problemas`` says what is missing."""
+
+    disponible = serializers.BooleanField()
+    problemas = serializers.ListField(child=serializers.CharField())
+    fecha_min = serializers.DateField()
+    fecha_max = serializers.DateField()
+    planes = PlanSerializer(many=True)
+    duraciones = serializers.ListField(child=serializers.IntegerField())
+    duracion_por_defecto = serializers.IntegerField(allow_null=True)
+    inmuebles = serializers.DictField(child=InmuebleSerializer(many=True))
+    lineas = LineaFormularioSerializer(many=True)
+    ciclos_pago = CicloSerializer(many=True)
+    datos = serializers.JSONField(allow_null=True)
+
+
+class FormularioPortalSerializer(serializers.Serializer):
+    """What a portal request form offers; the reason is plain, for the client."""
+
+    nombre = serializers.CharField()
+    disponible = serializers.BooleanField()
+    motivo_no_disponible = serializers.CharField()
+    fecha_min = serializers.DateField()
+    fecha_max = serializers.DateField()
+    planes = PlanSerializer(many=True)
+    inmuebles = serializers.DictField(child=InmuebleSerializer(many=True))
+    datos = serializers.JSONField(allow_null=True)
+
+
+class TipoTramiteSerializer(serializers.Serializer):
+    codigo = serializers.CharField()
+    nombre = serializers.CharField()
+
+
 class MotivoSerializer(serializers.Serializer):
     codigo = serializers.CharField()
     nombre = serializers.CharField()
@@ -165,7 +281,12 @@ class EventoBackofficeSerializer(serializers.ModelSerializer[EventoTramite]):
 
 
 def _accion_cliente(tramite: Tramite) -> str | None:
-    """What the portal asks the client to do next, if anything."""
+    """What the portal asks the client to do next, if anything.
+
+    A backoffice case is the executive's to move: the client only follows it.
+    """
+    if tramite.canal == Tramite.Canal.BACKOFFICE:
+        return None
     _, motivo = situacion(tramite)
     if motivo == REVISION_BORRADOR:
         return "revisar_borrador"
@@ -180,6 +301,7 @@ class TramiteSerializer(serializers.ModelSerializer[Tramite]):
     """A case as its client sees it. Internal notes stay out."""
 
     tipo = serializers.CharField(source="tipo.nombre")
+    tipo_codigo = serializers.CharField(source="tipo.codigo")
     motivo = MotivoSerializer(allow_null=True)
     accion_cliente = serializers.SerializerMethodField()
     editable = serializers.SerializerMethodField()
@@ -193,6 +315,7 @@ class TramiteSerializer(serializers.ModelSerializer[Tramite]):
             "id",
             "folio",
             "tipo",
+            "tipo_codigo",
             "estado",
             "motivo",
             "accion_cliente",
@@ -209,8 +332,14 @@ class TramiteSerializer(serializers.ModelSerializer[Tramite]):
     def get_accion_cliente(self, tramite: Tramite) -> str | None:
         return _accion_cliente(tramite)
 
+    # The channel whose side may edit the case; the backoffice serializer
+    # answers for the executive.
+    canal_que_edita = Tramite.Canal.PORTAL
+
     @extend_schema_field(serializers.BooleanField())
     def get_editable(self, tramite: Tramite) -> bool:
+        if tramite.canal != self.canal_que_edita:
+            return False
         pagada = (
             tramite.venta is not None and tramite.venta.estado == Venta.Estado.PAGADA
         )
@@ -221,7 +350,8 @@ class TramiteSerializer(serializers.ModelSerializer[Tramite]):
         contrato = tramite.contrato
         if contrato is None:
             return None
-        linea = contrato.servicios.select_related("inmueble", "ciclo_pago").first()
+        lineas = list(contrato.servicios.all())
+        linea = lineas[0] if lineas else None
         inmueble = linea.inmueble if linea else None
         return {
             "folio": contrato.folio,
@@ -243,6 +373,25 @@ class TramiteSerializer(serializers.ModelSerializer[Tramite]):
                 if inmueble
                 else None
             ),
+            # Every line; the keys above repeat the first one, as before PLT-02.
+            "servicios": [
+                {
+                    "nombre": s.nombre,
+                    "precio": str(s.precio),
+                    "ciclo_pago": s.ciclo_pago.nombre,
+                    "inmueble": (
+                        {
+                            "id": s.inmueble.pk,
+                            "tipo": s.inmueble.tipo,
+                            "nombre": s.inmueble.nombre,
+                            "direccion": s.inmueble.direccion_completa,
+                        }
+                        if s.inmueble
+                        else None
+                    ),
+                }
+                for s in lineas
+            ],
         }
 
 
@@ -251,6 +400,8 @@ class TramiteBackofficeSerializer(TramiteSerializer):
 
     cliente = serializers.SerializerMethodField()
     eventos = EventoBackofficeSerializer(many=True)
+
+    canal_que_edita = Tramite.Canal.BACKOFFICE
 
     class Meta(TramiteSerializer.Meta):
         fields = [

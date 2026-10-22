@@ -89,6 +89,39 @@ def png_sintetico(ancho: int = 64, alto: int = 40, tono: int = 200) -> bytes:
     )
 
 
+def preparar_bodega(desde: date = date(2026, 1, 1), **campos) -> Autorizante:
+    """A warehouse ready for PLT-02, with its natural-person owner.
+
+    A fictitious address and rol, and an owner with every field the
+    authorisation prints and both sides of a synthetic card.
+    """
+    bodega = OficinaFactory.create(
+        tipo=TipoInmueble.BODEGA,
+        nombre="Bodega de Ejemplo",
+        calle="Camino de Ejemplo",
+        numero="500",
+        unidad="Bodega 7",
+        comuna="Quilicura",
+        region="Región Metropolitana de Santiago",
+        **campos,
+    )
+    autorizante = Autorizante.objects.create(
+        inmueble=bodega,
+        persona=PersonaFactory.create(con_datos_civiles=True),
+        vigente_desde=desde,
+    )
+    guardar_documento_identidad(
+        autorizante,
+        archivo("anverso.png", png_sintetico(tono=170)),
+    )
+    guardar_documento_identidad(
+        autorizante,
+        archivo("reverso.png", png_sintetico(tono=210)),
+        reverso=True,
+    )
+    return autorizante
+
+
 def preparar_sucursal_domicilio(
     codigo: str = "LF",
     desde: date = date(2026, 1, 1),

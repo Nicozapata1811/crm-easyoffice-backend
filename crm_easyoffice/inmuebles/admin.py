@@ -8,9 +8,18 @@ from django.utils.translation import gettext_lazy as _
 
 from .models import Autorizante
 from .models import Oficina
+from .models import TipoInmueble
 from .models import validar_documento_identidad
 from .services import guardar_documento_identidad
+from .services import problemas_para_bodega
 from .services import problemas_para_domicilio
+
+
+def _lista(problemas: list[str]) -> str:
+    return format_html(
+        "<ul>{}</ul>",
+        format_html_join("", "<li>{}</li>", ((p,) for p in problemas)),
+    )
 
 
 @admin.register(Oficina)
@@ -23,16 +32,23 @@ class OficinaAdmin(admin.ModelAdmin):
         "rol_avaluo",
         "activa",
         "lista_para_domicilio",
+        "lista_para_bodega",
     ]
     list_filter = ["tipo", "activa"]
     search_fields = ["nombre", "codigo_sucursal", "comuna", "rol_avaluo"]
-    readonly_fields = ["problemas_domicilio"]
+    readonly_fields = ["problemas_domicilio", "problemas_bodega"]
 
     @admin.display(description=_("lista para domicilio (PLT-01)"), boolean=True)
     def lista_para_domicilio(self, obj: Oficina) -> bool | None:
         if not obj.codigo_sucursal:
             return None
         return not problemas_para_domicilio(obj, timezone.localdate())
+
+    @admin.display(description=_("lista para bodega (PLT-02)"), boolean=True)
+    def lista_para_bodega(self, obj: Oficina) -> bool | None:
+        if obj.tipo != TipoInmueble.BODEGA:
+            return None
+        return not problemas_para_bodega(obj, timezone.localdate())
 
     @admin.display(description=_("pendiente para ofrecer el domicilio en línea"))
     def problemas_domicilio(self, obj: Oficina) -> str:
@@ -41,10 +57,16 @@ class OficinaAdmin(admin.ModelAdmin):
         problemas = problemas_para_domicilio(obj, timezone.localdate())
         if not problemas:
             return _("Nothing: the portal offers this branch.")
-        return format_html(
-            "<ul>{}</ul>",
-            format_html_join("", "<li>{}</li>", ((p,) for p in problemas)),
-        )
+        return _lista(problemas)
+
+    @admin.display(description=_("pendiente para ofrecer la bodega (PLT-02)"))
+    def problemas_bodega(self, obj: Oficina) -> str:
+        if not obj.pk or obj.tipo != TipoInmueble.BODEGA:
+            return "—"
+        problemas = problemas_para_bodega(obj, timezone.localdate())
+        if not problemas:
+            return _("Nothing: executives can choose this warehouse.")
+        return _lista(problemas)
 
     def has_delete_permission(self, request, obj=None) -> bool:
         return False

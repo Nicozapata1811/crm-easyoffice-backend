@@ -3,95 +3,28 @@
 Section A (what the client typed) comes from the contract and the client's
 records; section B (filled by the system) from the contract, the contracted
 services, the chosen branch, its current authoriser and Easy Office's
-configuration. The paths are conversion.plt01.CAMPOS / MARCADORES.
-
-ASSUMPTION: pending validation with Easy Office. People's names, addresses,
-comunas, regions, the giro and cycles print in upper case, as in the samples;
-a razón social prints as registered (SpA, Ltda.), e-mails as typed.
+configuration. The paths are conversion.plt01.CAMPOS / MARCADORES; the parts
+PLT-02 shares are built in documentos.comun.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from dataclasses import field
 from typing import TYPE_CHECKING
-from typing import Any
 
-from crm_easyoffice.clientes.models import EstadoCivil
 from crm_easyoffice.configuracion.services import obtener_config_empresa
 from crm_easyoffice.configuracion.services import problemas_para_contrato
-from crm_easyoffice.inmuebles.services import abrir_documento_identidad
 from crm_easyoffice.inmuebles.services import autorizante_vigente
 from crm_easyoffice.inmuebles.services import problemas_para_domicilio
 
+from . import comun
 from . import formato
+from .comun import Contexto
+from .comun import DatosIncompletosError
 
 if TYPE_CHECKING:
-    from crm_easyoffice.clientes.models import Persona
     from crm_easyoffice.tramites.models import Tramite
 
-
-class DatosIncompletosError(Exception):
-    """The case lacks data the document prints; ``problemas`` says which."""
-
-    def __init__(self, problemas: list[str]) -> None:
-        super().__init__("; ".join(problemas))
-        self.problemas = problemas
-
-
-@dataclass
-class Contexto:
-    """What one PLT-01 needs: printed values, card images, and their sources."""
-
-    valores: dict[str, Any]
-    imagenes: dict[str, bytes]
-    fuentes: dict[str, Any]
-    firmantes: list[tuple[Persona, str]] = field(default_factory=list)
-
-
-def _estado_civil(persona: Persona) -> str:
-    return formato.mayusculas(str(EstadoCivil(persona.estado_civil).label))
-
-
-def _persona(persona: Persona) -> dict[str, str]:
-    return {
-        "nombre": formato.mayusculas(persona.nombre_completo),
-        "rut": formato.rut(persona.rut),
-        "nacionalidad": formato.mayusculas(persona.nacionalidad),
-        "estado_civil": _estado_civil(persona) if persona.estado_civil else "",
-        "profesion": formato.mayusculas(persona.profesion),
-    }
-
-
-def _faltantes_cliente(contrato) -> list[str]:
-    problemas = []
-    empresa = contrato.cliente.empresa
-    if empresa is None:
-        return ["El contrato PLT-01 es para clientes empresa."]
-    if not empresa.giro:
-        problemas.append("Falta el giro de la empresa cliente.")
-    representacion = contrato.representante
-    if representacion is None:
-        return [*problemas, "Falta el representante legal del cliente."]
-    persona = representacion.persona
-    faltan = [
-        nombre
-        for nombre, valor in [
-            ("domicilio", persona.domicilio),
-            ("comuna", persona.comuna),
-            ("región", persona.region),
-        ]
-        if not valor
-    ]
-    if faltan:
-        problemas.append(
-            f"Faltan datos del representante del cliente: {', '.join(faltan)}.",
-        )
-    if representacion.fecha_instrumento is None or not representacion.sitio_o_notaria:
-        problemas.append("Falta la personería del representante del cliente.")
-    if not contrato.email_aviso or not contrato.movil_aviso:
-        problemas.append("Falta el correo o el celular para notificaciones.")
-    return problemas
+PLANTILLA = "PLT-01"
 
 
 def contexto(tramite: Tramite) -> Contexto:
@@ -102,9 +35,7 @@ def contexto(tramite: Tramite) -> Contexto:
             messages are for the executive.
     """
     contrato = tramite.contrato
-    servicios = list(
-        contrato.servicios.select_related("ciclo_pago", "inmueble").order_by("orden"),
-    )
+    servicios = comun.servicios_de(contrato)
     oficina = next((s.inmueble for s in servicios if s.inmueble), None)
     if oficina is None:
         raise DatosIncompletosError(["El contrato no tiene una sucursal."])
@@ -112,7 +43,7 @@ def contexto(tramite: Tramite) -> Contexto:
     problemas = [
         *problemas_para_domicilio(oficina, contrato.fecha_inicio),
         *problemas_para_contrato(contrato.marca.nombre),
-        *_faltantes_cliente(contrato),
+        *comun.faltantes_cliente(contrato, PLANTILLA),
     ]
     if problemas:
         raise DatosIncompletosError(problemas)
@@ -120,63 +51,18 @@ def contexto(tramite: Tramite) -> Contexto:
     autorizante = autorizante_vigente(oficina, contrato.fecha_inicio)
     representante_autorizante = autorizante.representante.persona
     config = obtener_config_empresa()
-    representacion = contrato.representante
-    persona = representacion.persona
-    empresa = contrato.cliente.empresa
-
-    eo = _persona(config.representante)
-    firmante = _persona(representante_autorizante)
-    direccion = f"{oficina.calle} {oficina.numero}"
-    if oficina.unidad:
-        direccion = f"{direccion} {oficina.unidad}"
+    firmante = comun.persona(representante_autorizante)
 
     valores = {
-        "folio": contrato.folio,
-        "fecha_inicio": formato.fecha_larga(contrato.fecha_inicio),
-        "duracion": f"({contrato.duracion_meses} MESES)",
-        "vencimiento": formato.fecha_larga(contrato.fecha_vencimiento),
-        "bancolink": contrato.cuenta_pago.texto_contrato,
+        **comun.valores_contrato(contrato, servicios),
         "sucursal": {
-            "direccion": formato.mayusculas(direccion),
-            "comuna": formato.mayusculas(oficina.comuna),
-            "region": formato.region(oficina.region),
+            **comun.ubicacion(oficina),
             "rol": oficina.rol_avaluo,
             "unidad_sii": formato.mayusculas(oficina.unidad_sii),
             "municipalidad": formato.mayusculas(oficina.municipalidad),
         },
-        "empresa": {
-            "razon_social": empresa.razon_social,
-            "rut": formato.rut(empresa.rut),
-            "giro": formato.mayusculas(empresa.giro),
-        },
-        "representante": {
-            "nombre": formato.mayusculas(persona.nombre_completo),
-            "rut": formato.rut(persona.rut),
-            "domicilio": formato.mayusculas(persona.domicilio),
-            "comuna": formato.mayusculas(persona.comuna),
-            "region": formato.region(persona.region),
-        },
-        "personeria": {
-            "fecha": formato.fecha_larga(representacion.fecha_instrumento),
-            "sitio": representacion.sitio_o_notaria,
-        },
-        "aviso": {"mail": contrato.email_aviso, "celular": contrato.movil_aviso},
-        "servicios": [
-            {
-                "nombre": formato.mayusculas(servicio.nombre),
-                "precio": formato.pesos(servicio.precio),
-                "ciclo": formato.mayusculas(servicio.ciclo_pago.nombre),
-                "descripcion": servicio.descripcion,
-            }
-            for servicio in servicios
-        ],
-        "eo": {
-            "representante": eo["nombre"],
-            "nacionalidad": eo["nacionalidad"],
-            "estado_civil": eo["estado_civil"],
-            "profesion": eo["profesion"],
-            "rut": eo["rut"],
-        },
+        **comun.valores_cliente(contrato),
+        "eo": comun.valores_eo(config),
         "autorizante": {
             "razon_social": autorizante.empresa.razon_social,
             "rut": formato.rut(autorizante.empresa.rut),
@@ -187,33 +73,18 @@ def contexto(tramite: Tramite) -> Contexto:
             "rut_representante": firmante["rut"],
         },
     }
-
-    with abrir_documento_identidad(autorizante) as anverso:
-        imagen_anverso = anverso.read()
-    with abrir_documento_identidad(autorizante, reverso=True) as reverso:
-        imagen_reverso = reverso.read()
-
     fuentes = {
-        "tramite": tramite.pk,
-        "contrato": contrato.pk,
-        "servicios_contratados": [servicio.pk for servicio in servicios],
-        "cliente": contrato.cliente_id,
-        "empresa": empresa.pk,
-        "representante_legal": representacion.pk,
-        "persona_representante": persona.pk,
-        "cuenta_pago": contrato.cuenta_pago_id,
+        **comun.fuentes_comunes(tramite, contrato, servicios, config),
         "oficina": oficina.pk,
         "autorizante": autorizante.pk,
         "persona_autorizante": representante_autorizante.pk,
-        "config_empresa": config.pk,
-        "persona_easy_office": config.representante_id,
     }
     return Contexto(
         valores=valores,
-        imagenes={"cedula_anverso": imagen_anverso, "cedula_reverso": imagen_reverso},
+        imagenes=comun.cedula(autorizante),
         fuentes=fuentes,
         firmantes=[
-            (persona, "cliente_representante"),
+            (contrato.representante.persona, "cliente_representante"),
             (representante_autorizante, "autorizante"),
         ],
     )

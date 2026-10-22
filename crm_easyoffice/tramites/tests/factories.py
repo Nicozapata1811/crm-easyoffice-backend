@@ -13,6 +13,7 @@ from crm_easyoffice.clientes.tests.factories import CuentaClienteFactory
 from crm_easyoffice.clientes.tests.factories import EmpresaFactory
 from crm_easyoffice.clientes.tests.factories import synthetic_rut
 from crm_easyoffice.configuracion.tests.factories import preparar_config_contrato
+from crm_easyoffice.inmuebles.tests.factories import preparar_bodega
 from crm_easyoffice.inmuebles.tests.factories import preparar_sucursal_domicilio
 from crm_easyoffice.tramites.models import EventoTramite
 from crm_easyoffice.tramites.models import MotivoPendiente
@@ -23,10 +24,15 @@ from crm_easyoffice.tramites.services import TIPO_DOMICILIO
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from crm_easyoffice.clientes.models import Cliente
     from crm_easyoffice.clientes.models import CuentaCliente
     from crm_easyoffice.inmuebles.models import Oficina
 
 RUT_REPRESENTANTE = synthetic_rut(32_111_222)
+
+# The seeded warehouse case type (tramites 0004). Tests name it to start a
+# case; the code under test never compares a type's code.
+TIPO_BODEGA = "bodega"
 
 
 def preparar_domicilio(codigo: str = "LF", desde: date = date(2026, 1, 1)) -> Oficina:
@@ -80,6 +86,38 @@ def payload_domicilio(cliente, sucursal: Oficina, **extra: Any) -> dict[str, Any
     personeria["fecha_instrumento"] = str(personeria["fecha_instrumento"])
     datos["fecha_inicio"] = str(datos["fecha_inicio"])
     return datos
+
+
+def preparar_bodega_caso(
+    codigo: str = "LF",
+    desde: date = date(2026, 1, 1),
+) -> tuple[Oficina, Oficina]:
+    """Configuration, a branch and a warehouse ready for PLT-02."""
+    preparar_config_contrato()
+    sucursal = preparar_sucursal_domicilio(codigo, desde).inmueble
+    return sucursal, preparar_bodega(desde).inmueble
+
+
+def cliente_empresa() -> Cliente:
+    """A fictitious company client with no portal account."""
+    return ClienteFactory.create(persona=None, empresa=EmpresaFactory.create())
+
+
+def datos_bodega(cliente, sucursal: Oficina, bodega: Oficina, **extra: Any):
+    """The warehouse form as the serializer leaves it (validated values).
+
+    The bodega is sold by plan (ventas 0013): ``plan`` is anual by default.
+    """
+    return {**datos_domicilio(cliente, sucursal), "bodega": bodega.pk, **extra}
+
+
+def payload_bodega(cliente, sucursal: Oficina, bodega: Oficina, **extra: Any):
+    """The same form as the backoffice posts it (JSON)."""
+    datos = datos_bodega(cliente, sucursal, bodega, **extra)
+    personeria = datos["personeria"]
+    personeria["fecha_instrumento"] = str(personeria["fecha_instrumento"])
+    datos["fecha_inicio"] = str(datos["fecha_inicio"])
+    return {"tipo": TIPO_BODEGA, "cliente": cliente.pk, **datos}
 
 
 Paso = tuple["datetime", str, str | None]

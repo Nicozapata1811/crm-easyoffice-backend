@@ -1,11 +1,13 @@
-"""Case state changes and the domicile flow (HU-24). The only writer of cases.
+"""Case state changes and the request flows (HU-24). The only writer of cases.
 
 Every move goes through ``_mover``, which checks ``TRANSICIONES`` and writes
 an EventoTramite. A state is (estado, motivo); RN-42 keeps the reason only
 while the case is pending.
 
-The domicile flow is built directly, as the build order asks: it reads the
-case type's configuration, never its name.
+Two case types run on these functions: the domicile (PLT-01, sold in the
+portal) and the warehouse (PLT-02, started by an executive). They read the
+case type's configuration, never its name; what differs between them is
+listed in docs/variation-points.md.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 from datetime import timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -38,18 +41,23 @@ from crm_easyoffice.configuracion.services import problemas_para_contrato
 from crm_easyoffice.contratos.services import LineaContrato
 from crm_easyoffice.contratos.services import activar_contrato
 from crm_easyoffice.contratos.services import actualizar_borrador
+from crm_easyoffice.contratos.services import calcular_vencimiento
 from crm_easyoffice.contratos.services import contacto_de_aviso
 from crm_easyoffice.contratos.services import crear_contrato
-from crm_easyoffice.inmuebles.services import problemas_para_domicilio
-from crm_easyoffice.inmuebles.services import sucursales_activas
-from crm_easyoffice.inmuebles.services import sucursales_para_domicilio
+from crm_easyoffice.contratos.services import duraciones_activas
+from crm_easyoffice.contratos.services import inmuebles_ocupados
+from crm_easyoffice.inmuebles.services import inmueble_de
+from crm_easyoffice.inmuebles.services import inmuebles_para
+from crm_easyoffice.inmuebles.services import problemas_inmueble
 from crm_easyoffice.ventas.models import Venta
 from crm_easyoffice.ventas.services import PlanNoDisponibleError
 from crm_easyoffice.ventas.services import VentaNoPagableError
 from crm_easyoffice.ventas.services import anular_venta
+from crm_easyoffice.ventas.services import ciclos_pago_activos
 from crm_easyoffice.ventas.services import crear_venta
 from crm_easyoffice.ventas.services import lineas_de_plan
 from crm_easyoffice.ventas.services import planes_en_portal
+from crm_easyoffice.ventas.services import servicios_contratables
 
 from .models import EventoTramite
 from .models import MotivoPendiente
@@ -64,6 +72,7 @@ if TYPE_CHECKING:
     from crm_easyoffice.inmuebles.models import Oficina
     from crm_easyoffice.users.models import User
     from crm_easyoffice.ventas.models import PlanServicio
+    from crm_easyoffice.ventas.models import Servicio
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +119,7 @@ TRANSICIONES: dict[Situacion, set[Situacion]] = {
 
 NUEVA_FECHA = "La fecha de inicio ya pasó: elige una nueva para emitir el contrato."
 SOLO_EMPRESAS = (
-    "El domicilio tributario en línea es para empresas. Escríbenos y te ayudamos "
+    "El trámite «{nombre}» en línea es para empresas. Escríbenos y te ayudamos "
     "a contratarlo."
 )
 
@@ -168,8 +177,25 @@ def _mover(
     return tramite
 
 
+def tipo_tramite(codigo: str) -> TipoTramite:
+    return TipoTramite.objects.get(codigo=codigo)
+
+
 def tipo_domicilio() -> TipoTramite:
-    return TipoTramite.objects.get(codigo=TIPO_DOMICILIO)
+    return tipo_tramite(TIPO_DOMICILIO)
+
+
+def canales(tipo: TipoTramite) -> list[str]:
+    """Where a case of this type may be started (``canales``)."""
+    return list(tipo.configuracion.get("canales", []))
+
+
+def tipos_iniciables(canal: str) -> QuerySet[TipoTramite]:
+    """Active case types a case may be started for through ``canal``."""
+    return TipoTramite.objects.filter(
+        activo=True,
+        configuracion__canales__contains=[canal],
+    )
 
 
 def ventana_fecha_inicio(
@@ -184,32 +210,135 @@ def ventana_fecha_inicio(
     return hoy, hoy + timedelta(days=tipo.configuracion.get("inicio_max_dias", 30))
 
 
-def _requiere(tipo: TipoTramite, paso: str) -> bool:
-    return bool(tipo.configuracion.get(paso, True))
+def _requiere(tramite: Tramite, paso: str) -> bool:
+    """Whether the case goes through ``paso`` (requiere_pago, requiere_firma).
+
+    The value is true or false, or the channels whose cases need the step:
+    the bodega is paid online only when the client files it in the portal.
+    """
+    valor = tramite.tipo.configuracion.get(paso, True)
+    if isinstance(valor, list):
+        return tramite.canal in valor
+    return bool(valor)
 
 
-def no_disponible(cliente: Cliente, tipo: TipoTramite) -> list[str]:
-    """Why this client cannot file the case online today; empty if they can."""
-    if cliente.empresa_id is None:
-        return [SOLO_EMPRESAS]
+def _con_planes(tipo: TipoTramite) -> bool:
+    return bool(tipo.configuracion.get("planes", False))
+
+
+def _lineas_config(tipo: TipoTramite) -> list[dict[str, Any]]:
+    return list(tipo.configuracion.get("lineas", []))
+
+
+def _tipo_cliente(cliente: Cliente) -> str:
+    return "persona" if cliente.empresa_id is None else "empresa"
+
+
+def cliente_admitido(cliente: Cliente, tipo: TipoTramite) -> bool:
+    """Whether the case type is for this kind of client (``tipos_cliente``)."""
+    return _tipo_cliente(cliente) in tipo.configuracion.get("tipos_cliente", [])
+
+
+def _servicios_de(tipo: TipoTramite) -> dict[str, Servicio]:
+    codigos = [linea["servicio"] for linea in _lineas_config(tipo)]
+    return {s.codigo: s for s in servicios_contratables().filter(codigo__in=codigos)}
+
+
+def no_disponible(
+    cliente: Cliente,
+    tipo: TipoTramite,
+    canal: str = Tramite.Canal.PORTAL,
+) -> list[str]:
+    """Why this client cannot file the case today through ``canal``.
+
+    Empty if they can. The messages are for staff, except the one a portal
+    client reads when the type is not for them (SOLO_EMPRESAS).
+    """
+    if not cliente_admitido(cliente, tipo):
+        if canal == Tramite.Canal.PORTAL:
+            return [SOLO_EMPRESAS.format(nombre=tipo.nombre)]
+        return [f"«{tipo.nombre}» no es para este tipo de cliente."]
     problemas = problemas_para_contrato(tipo.configuracion.get("marca", ""))
-    if not planes_en_portal(tipo.configuracion.get("servicio", "")).exists():
+    if (
+        _con_planes(tipo)
+        and not planes_en_portal(
+            tipo.configuracion.get("servicio", ""),
+        ).exists()
+    ):
         problemas.append("No hay planes a la venta en el portal.")
+    lineas = _lineas_config(tipo)
+    if not lineas:
+        problemas.append("La configuración del trámite no define sus servicios.")
+    servicios = _servicios_de(tipo)
+    problemas += [
+        f"El servicio {linea['servicio']!r} no existe o está inactivo."
+        for linea in lineas
+        if linea["servicio"] not in servicios
+    ]
     return problemas
 
 
 @dataclass(frozen=True)
 class Eleccion:
-    """The choices behind a domicile request, validated."""
+    """The choices behind a request, validated: what its contract will hold.
 
-    plan: PlanServicio
-    sucursal: Oficina
+    ``plan`` is set for a type sold by plans; ``inmuebles`` maps each line's
+    property role (``sucursal``, ``bodega``) to the chosen property.
+    """
+
+    plan: PlanServicio | None
+    inmuebles: dict[str, Oficina]
     fecha_inicio: date
+    duracion_meses: int
+    lineas: list[LineaContrato]
 
 
-def _validar_eleccion(tipo: TipoTramite, datos: dict[str, Any]) -> Eleccion:
+NO_DISPONIBLE_EN_FECHA = {
+    "sucursal": _("This branch is not available for that date."),
+    "bodega": _("This warehouse is not available for that date."),
+}
+
+
+def _no_disponible_en(rol: str) -> str:
+    return NO_DISPONIBLE_EN_FECHA.get(
+        rol,
+        _("This property is not available for that date."),
+    )
+
+
+def _ocupado(
+    linea: dict[str, Any],
+    inmueble: Oficina,
+    desde: date,
+    hasta: date,
+    contrato_id: int | None,
+) -> bool:
+    if not linea.get("inmueble_exclusivo", False):
+        return False
+    ocupados = inmuebles_ocupados(
+        [inmueble.pk],
+        desde,
+        hasta,
+        excluir_contrato=contrato_id,
+    )
+    return inmueble.pk in ocupados
+
+
+def _validar_eleccion(
+    tipo: TipoTramite,
+    datos: dict[str, Any],
+    contrato_id: int | None = None,
+) -> Eleccion:
+    """Check the request's choices against the type's configuration.
+
+    Raises:
+        django.core.exceptions.ValidationError: Keyed by the offending field:
+            ``fecha_inicio``, ``plan``, a property role, ``lineas``.
+    """
     desde, hasta = ventana_fecha_inicio(tipo)
     fecha_inicio = datos["fecha_inicio"]
+    if isinstance(fecha_inicio, str):
+        fecha_inicio = date.fromisoformat(fecha_inicio)
     if not desde <= fecha_inicio <= hasta:
         raise ValidationError(
             {
@@ -219,27 +348,113 @@ def _validar_eleccion(tipo: TipoTramite, datos: dict[str, Any]) -> Eleccion:
                 % {"desde": f"{desde:%d-%m-%Y}", "hasta": f"{hasta:%d-%m-%Y}"},
             },
         )
-    plan = (
-        planes_en_portal(tipo.configuracion.get("servicio", ""))
-        .filter(codigo=datos["plan"])
-        .first()
-    )
-    if plan is None:
-        raise ValidationError({"plan": _("This plan is not available.")})
-    sucursal = sucursales_activas().filter(pk=datos["sucursal"]).first()
-    if sucursal is None or problemas_para_domicilio(sucursal, fecha_inicio):
-        raise ValidationError(
-            {"sucursal": _("This branch is not available for that date.")},
+    plan = None
+    if _con_planes(tipo):
+        plan = (
+            planes_en_portal(tipo.configuracion.get("servicio", ""))
+            .filter(codigo=datos.get("plan", ""))
+            .first()
         )
-    return Eleccion(plan, sucursal, fecha_inicio)
+        if plan is None:
+            raise ValidationError({"plan": _("This plan is not available.")})
+        duracion = plan.duracion_meses
+    else:
+        duracion = int(
+            datos.get("duracion_meses")
+            or tipo.configuracion.get("duracion_por_defecto", 12),
+        )
+    vencimiento = calcular_vencimiento(fecha_inicio, duracion)
+
+    inmuebles: dict[str, Oficina] = {}
+    errores: dict[str, str] = {}
+    for linea in _lineas_config(tipo):
+        rol = linea["inmueble"]
+        inmueble = inmueble_de(rol, datos[rol]) if datos.get(rol) else None
+        if (
+            inmueble is None
+            or problemas_inmueble(inmueble, fecha_inicio, linea["requisitos"])
+            or _ocupado(linea, inmueble, fecha_inicio, vencimiento, contrato_id)
+        ):
+            errores[rol] = _no_disponible_en(rol)
+        else:
+            inmuebles[rol] = inmueble
+    if errores:
+        raise ValidationError(errores)
+
+    return Eleccion(
+        plan=plan,
+        inmuebles=inmuebles,
+        fecha_inicio=fecha_inicio,
+        duracion_meses=duracion,
+        lineas=_lineas(tipo, plan, inmuebles, datos.get("lineas", [])),
+    )
+
+
+def _lineas(
+    tipo: TipoTramite,
+    plan: PlanServicio | None,
+    inmuebles: dict[str, Oficina],
+    elegidas: list[dict[str, Any]],
+) -> list[LineaContrato]:
+    """The contract's lines in the configured order.
+
+    The plan's service takes the plan (price, cycle, duration); a line
+    configured ``incluido_en_plan`` is paid by it (copied at 0, with the
+    plan's cycle); any other line takes the cycle chosen for it, or its
+    service's default, and the agreed price when its service has no list
+    price (contratos checks RN-44).
+    """
+    servicios = _servicios_de(tipo)
+    ciclos = {ciclo.codigo: ciclo for ciclo in ciclos_pago_activos()}
+    por_servicio = {elegida["servicio"]: elegida for elegida in elegidas}
+    lineas = []
+    for linea in _lineas_config(tipo):
+        servicio = servicios[linea["servicio"]]
+        inmueble = inmuebles[linea["inmueble"]]
+        if plan is not None and plan.servicio_id == servicio.pk:
+            lineas.append(
+                LineaContrato(servicio=servicio, inmueble=inmueble, plan=plan),
+            )
+            continue
+        if plan is not None and linea.get("incluido_en_plan", False):
+            lineas.append(
+                LineaContrato(servicio=servicio, inmueble=inmueble, incluido_en=plan),
+            )
+            continue
+        elegida = por_servicio.get(servicio.codigo, {})
+        codigo_ciclo = elegida.get("ciclo_pago")
+        if codigo_ciclo and codigo_ciclo not in ciclos:
+            raise ValidationError({"lineas": _("Unknown payment cycle.")})
+        precio = elegida.get("precio")
+        lineas.append(
+            LineaContrato(
+                servicio=servicio,
+                inmueble=inmueble,
+                ciclo_pago=ciclos.get(codigo_ciclo) if codigo_ciclo else None,
+                precio=Decimal(str(precio)) if precio not in (None, "") else None,
+            ),
+        )
+    return lineas
 
 
 def _datos(eleccion: Eleccion) -> dict[str, Any]:
-    return {
-        "plan": eleccion.plan.codigo,
-        "sucursal": eleccion.sucursal.pk,
-        "fecha_inicio": eleccion.fecha_inicio.isoformat(),
-    }
+    """The choices kept on the case: plan or term, properties, start date."""
+    datos: dict[str, Any] = {}
+    if eleccion.plan is not None:
+        datos["plan"] = eleccion.plan.codigo
+    datos |= {rol: inmueble.pk for rol, inmueble in eleccion.inmuebles.items()}
+    datos["fecha_inicio"] = eleccion.fecha_inicio.isoformat()
+    if eleccion.plan is None:
+        datos["duracion_meses"] = eleccion.duracion_meses
+        datos["lineas"] = [
+            {
+                "servicio": linea.servicio.codigo,
+                "ciclo_pago": linea.ciclo_pago.codigo if linea.ciclo_pago else None,
+                "precio": str(linea.precio) if linea.precio is not None else None,
+            }
+            for linea in eleccion.lineas
+        ]
+    return datos
 
 
 def _pedir_documento(tramite: Tramite) -> None:
@@ -248,34 +463,49 @@ def _pedir_documento(tramite: Tramite) -> None:
     )
 
 
-def iniciar_domicilio(
+def _exigir_canal(tramite: Tramite, canal: str) -> None:
+    """Each side acts only on its own cases: the client on portal ones."""
+    if tramite.canal != canal:
+        msg = f"{tramite} belongs to the {tramite.canal} channel."
+        raise TransicionInvalidaError(msg)
+
+
+def iniciar_tramite(
+    tipo: TipoTramite,
     cliente: Cliente,
     datos: dict[str, Any],
+    *,
+    canal: str,
     usuario: User | None = None,
 ) -> Tramite:
-    """File a domicile request from the portal form (HU-24).
+    """File a request: the client's data, its draft contract, the case (HU-24).
 
     Saves the client's company and signer, records the contract as a draft
-    with the plan at the chosen branch, opens the case and asks for its
-    document.
+    with the type's lines at the chosen properties, opens the case and asks
+    for its document.
 
     Args:
-        cliente: The logged-in client.
+        tipo: The case type; its ``canal`` must be ``canal``.
+        cliente: The client the case is for.
         datos: ``empresa``, ``representante``, ``personeria`` (see
             clientes.services.guardar_datos_contratante), ``email_aviso``,
-            ``movil_aviso``, ``plan`` (code), ``sucursal`` (id) and
-            ``fecha_inicio``.
+            ``movil_aviso``, ``fecha_inicio``, one property id per line role
+            (``sucursal``, ``bodega``), and ``plan`` or ``duracion_meses``
+            and ``lineas`` (``servicio``, ``ciclo_pago``, ``precio``).
+        canal: Where it is filed: the portal (the client) or the backoffice
+            (an executive, who becomes the contract's executive).
         usuario: Who filed it.
 
     Raises:
-        TramiteNoDisponibleError: The case cannot be offered online.
+        TramiteNoDisponibleError: The case cannot be offered.
         django.core.exceptions.ValidationError: Keyed by the offending field.
         crm_easyoffice.clientes.services.RepresentanteNoDisponibleError: The
             representative's RUT is someone else's record.
     """
-    tipo = tipo_domicilio()
-    if problemas := no_disponible(cliente, tipo):
+    if problemas := no_disponible(cliente, tipo, canal):
         raise TramiteNoDisponibleError(problemas)
+    if canal not in canales(tipo):
+        raise TramiteNoDisponibleError([f"«{tipo.nombre}» no se inicia por {canal}."])
     eleccion = _validar_eleccion(tipo, datos)
     marca = marcas_activas().get(nombre=tipo.configuracion["marca"])
 
@@ -289,18 +519,19 @@ def iniciar_domicilio(
         contrato = crear_contrato(
             cliente=cliente,
             marca=marca,
-            lineas=[_linea(eleccion)],
+            lineas=eleccion.lineas,
             fecha_inicio=eleccion.fecha_inicio,
-            duracion_meses=eleccion.plan.duracion_meses,
+            duracion_meses=eleccion.duracion_meses,
             representante=representante,
             email_aviso=datos["email_aviso"],
             movil_aviso=datos["movil_aviso"],
+            ejecutivo=usuario if canal == Tramite.Canal.BACKOFFICE else None,
             borrador=True,
         )
         tramite = Tramite.objects.create(
             cliente=cliente,
             tipo=tipo,
-            canal=Tramite.Canal.PORTAL,
+            canal=canal,
             datos=_datos(eleccion),
             contrato=contrato,
             creado_por=usuario,
@@ -315,11 +546,21 @@ def iniciar_domicilio(
     return tramite
 
 
-def _linea(eleccion: Eleccion) -> LineaContrato:
-    return LineaContrato(
-        servicio=eleccion.plan.servicio,
-        inmueble=eleccion.sucursal,
-        plan=eleccion.plan,
+def iniciar_domicilio(
+    cliente: Cliente,
+    datos: dict[str, Any],
+    usuario: User | None = None,
+) -> Tramite:
+    """File a domicile request from the portal form (HU-24).
+
+    See ``iniciar_tramite``; ``datos`` carries ``plan`` and ``sucursal``.
+    """
+    return iniciar_tramite(
+        tipo_domicilio(),
+        cliente,
+        datos,
+        canal=Tramite.Canal.PORTAL,
+        usuario=usuario,
     )
 
 
@@ -327,10 +568,12 @@ def _venta_pagada(tramite: Tramite) -> bool:
     return tramite.venta is not None and tramite.venta.estado == Venta.Estado.PAGADA
 
 
-def actualizar_domicilio(
+def actualizar_tramite(
     tramite: Tramite,
     datos: dict[str, Any],
     usuario: User | None = None,
+    *,
+    canal: str = Tramite.Canal.PORTAL,
 ) -> Tramite:
     """Change a request before it is paid; its document is generated again.
 
@@ -338,16 +581,18 @@ def actualizar_domicilio(
     the new draft.
 
     Raises:
-        TransicionInvalidaError: The case is paid or completed.
+        TransicionInvalidaError: The case is paid or completed, or belongs
+            to the other channel.
         django.core.exceptions.ValidationError: Keyed by the offending field.
     """
+    _exigir_canal(tramite, canal)
     if (
         _venta_pagada(tramite)
         or (INICIADO, None) not in TRANSICIONES[situacion(tramite)]
     ):
         msg = f"{tramite} can no longer be edited."
         raise TransicionInvalidaError(msg)
-    eleccion = _validar_eleccion(tramite.tipo, datos)
+    eleccion = _validar_eleccion(tramite.tipo, datos, tramite.contrato_id)
 
     with transaction.atomic():
         if tramite.venta is not None:
@@ -364,9 +609,9 @@ def actualizar_domicilio(
         )
         actualizar_borrador(
             tramite.contrato,
-            lineas=[_linea(eleccion)],
+            lineas=eleccion.lineas,
             fecha_inicio=eleccion.fecha_inicio,
-            duracion_meses=eleccion.plan.duracion_meses,
+            duracion_meses=eleccion.duracion_meses,
             representante=representante,
             email_aviso=datos["email_aviso"],
             movil_aviso=datos["movil_aviso"],
@@ -380,10 +625,16 @@ def actualizar_domicilio(
     return tramite
 
 
+# The portal's name for it (HU-24).
+actualizar_domicilio = actualizar_tramite
+
+
 def cambiar_fecha_inicio(
     tramite: Tramite,
     fecha_inicio: date,
     usuario: User | None = None,
+    *,
+    canal: str = Tramite.Canal.PORTAL,
 ) -> Tramite:
     """Set a new start date after payment, when the chosen one has passed.
 
@@ -391,20 +642,22 @@ def cambiar_fecha_inicio(
     and the case returns to the signature step.
 
     Raises:
-        TransicionInvalidaError: The case is not waiting for a new date.
+        TransicionInvalidaError: The case is not waiting for a new date, or
+            belongs to the other channel.
         django.core.exceptions.ValidationError: The date is out of range.
     """
+    _exigir_canal(tramite, canal)
     if situacion(tramite) != (PENDIENTE, FALTA_INFORMACION):
         msg = f"{tramite} is not waiting for a new start date."
         raise TransicionInvalidaError(msg)
     datos = {**tramite.datos, "fecha_inicio": fecha_inicio}
-    eleccion = _validar_eleccion(tramite.tipo, datos)
+    eleccion = _validar_eleccion(tramite.tipo, datos, tramite.contrato_id)
     contrato = tramite.contrato
 
     with transaction.atomic():
         actualizar_borrador(
             contrato,
-            lineas=[_linea(eleccion)],
+            lineas=eleccion.lineas,
             fecha_inicio=fecha_inicio,
             duracion_meses=contrato.duracion_meses,
             representante=contrato.representante,
@@ -442,23 +695,39 @@ def documento_fallido(tramite: Tramite, detalle: str) -> Tramite:
     return _mover(tramite, PENDIENTE, FALTA_INFORMACION, detalle=detalle)
 
 
-def confirmar_borrador(tramite: Tramite, usuario: User | None = None) -> Tramite:
+CONFIRMADO_POR_EJECUTIVO = "El ejecutivo registró la confirmación del cliente."
+
+
+def confirmar_borrador(
+    tramite: Tramite,
+    usuario: User | None = None,
+    *,
+    canal: str = Tramite.Canal.PORTAL,
+) -> Tramite:
     """The client confirms the draft (RN-13) and is charged for it (RN-40).
 
+    In the backoffice the executive records the client's confirmation.
+
+    ASSUMPTION: pending validation with Easy Office. For a backoffice case
+    the client reviews the draft with the executive, outside the platform.
+
     Raises:
-        TransicionInvalidaError: The draft is not waiting for review.
+        TransicionInvalidaError: The draft is not waiting for review, or the
+            case belongs to the other channel.
         FechaInicioVencidaError: The start date has passed.
         crm_easyoffice.ventas.services.PlanNoDisponibleError: The plan can
             no longer be sold.
     """
     tramite = Tramite.objects.select_related("contrato", "tipo").get(pk=tramite.pk)
+    _exigir_canal(tramite, canal)
     if situacion(tramite) != (PENDIENTE, REVISION_BORRADOR):
         msg = f"{tramite} has no draft waiting for review."
         raise TransicionInvalidaError(msg)
     if fecha_inicio_vencida(tramite):
         raise FechaInicioVencidaError
-    if not _requiere(tramite.tipo, "requiere_pago"):
-        return _mover(tramite, PENDIENTE, FIRMA, usuario=usuario)
+    detalle = CONFIRMADO_POR_EJECUTIVO if canal == Tramite.Canal.BACKOFFICE else ""
+    if not _requiere(tramite, "requiere_pago"):
+        return _mover(tramite, PENDIENTE, FIRMA, usuario=usuario, detalle=detalle)
 
     plan = (
         planes_en_portal(tramite.tipo.configuracion.get("servicio", ""))
@@ -470,7 +739,7 @@ def confirmar_borrador(tramite: Tramite, usuario: User | None = None) -> Tramite
     with transaction.atomic():
         venta = crear_venta(tramite.cliente, lineas_de_plan(plan))
         Tramite.objects.filter(pk=tramite.pk).update(venta=venta)
-        return _mover(tramite, PENDIENTE, PAGO, usuario=usuario)
+        return _mover(tramite, PENDIENTE, PAGO, usuario=usuario, detalle=detalle)
 
 
 def registrar_pago(venta: Venta) -> Tramite | None:
@@ -526,45 +795,107 @@ NO_DISPONIBLE = (
 )
 
 
-def formulario_domicilio(cliente: Cliente) -> dict[str, Any]:
-    """What the portal form needs: availability, choices and the pre-fill.
+def _disponibles(
+    linea: dict[str, Any],
+    desde: date,
+) -> list[Oficina]:
+    """The properties a line may take for a start on ``desde``.
+
+    An exclusive property already held that day is left out; the request is
+    checked again for its whole term.
+    """
+    inmuebles = inmuebles_para(linea["inmueble"], desde, linea["requisitos"])
+    if not linea.get("inmueble_exclusivo", False):
+        return inmuebles
+    ocupados = inmuebles_ocupados([i.pk for i in inmuebles], desde, desde)
+    return [i for i in inmuebles if i.pk not in ocupados]
+
+
+def formulario_tramite(
+    tipo: TipoTramite,
+    cliente: Cliente,
+    canal: str = Tramite.Canal.BACKOFFICE,
+) -> dict[str, Any]:
+    """What a request form needs: availability, choices and the pre-fill.
 
     The pre-fill comes only from the client's own records; a field they have
-    never filled is blank. Branches and the reason a case is unavailable are
-    computed for today; the request is checked again for its start date.
+    never filled is blank. Properties and problems are computed for today;
+    the request is checked again for its start date. ``problemas`` is for
+    staff; ``formulario_portal`` turns it into the client's reason.
     """
-    tipo = tipo_domicilio()
     desde, hasta = ventana_fecha_inicio(tipo)
-    problemas = no_disponible(cliente, tipo)
-    sucursales = sucursales_para_domicilio(desde) if not problemas else []
-    if not problemas and not sucursales:
-        problemas = ["Ninguna sucursal tiene completos los datos del contrato."]
-
-    motivo = ""
-    if cliente.empresa_id is None:
-        motivo = problemas[0]
-    elif problemas:
-        logger.warning("Online domicile unavailable: %s", "; ".join(problemas))
-        motivo = NO_DISPONIBLE
+    problemas = no_disponible(cliente, tipo, canal)
+    if canal not in canales(tipo):
+        problemas.append(f"«{tipo.nombre}» no se inicia por {canal}.")
+    inmuebles: dict[str, list[Oficina]] = {}
+    if not problemas:
+        for linea in _lineas_config(tipo):
+            inmuebles[linea["inmueble"]] = _disponibles(linea, desde)
+            if not inmuebles[linea["inmueble"]]:
+                problemas.append(
+                    f"Ningún inmueble para «{linea['inmueble']}» tiene completos "
+                    "los datos del contrato.",
+                )
+    servicios = _servicios_de(tipo) if not problemas else {}
 
     prefill = datos_contratante(cliente) if cliente.empresa_id else None
     email, movil = contacto_de_aviso(cliente)
     return {
         "disponible": not problemas,
-        "motivo_no_disponible": motivo,
+        "problemas": problemas,
         "fecha_min": desde,
         "fecha_max": hasta,
         "planes": (
             list(planes_en_portal(tipo.configuracion.get("servicio", "")))
-            if not problemas
+            if not problemas and _con_planes(tipo)
             else []
         ),
-        "sucursales": sucursales,
+        "duraciones": (
+            duraciones_activas() if not problemas and not _con_planes(tipo) else []
+        ),
+        "duracion_por_defecto": tipo.configuracion.get("duracion_por_defecto"),
+        "inmuebles": inmuebles,
+        "lineas": [
+            {"servicio": servicios[linea["servicio"]], "inmueble": linea["inmueble"]}
+            for linea in _lineas_config(tipo)
+            if linea["servicio"] in servicios
+        ],
+        "ciclos_pago": list(ciclos_pago_activos()) if not problemas else [],
         "datos": (
             {**prefill, "contacto": {"email_aviso": email, "movil_aviso": movil}}
             if prefill
             else None
         ),
+    }
+
+
+def formulario_portal(tipo: TipoTramite, cliente: Cliente) -> dict[str, Any]:
+    """What a portal request form needs; see formulario_tramite.
+
+    The client reads a plain reason, never the staff detail.
+    """
+    formulario = formulario_tramite(tipo, cliente, Tramite.Canal.PORTAL)
+    problemas = formulario.pop("problemas")
+    motivo = ""
+    if not cliente_admitido(cliente, tipo):
+        motivo = problemas[0]
+    elif problemas:
+        logger.warning("Online %s unavailable: %s", tipo.codigo, "; ".join(problemas))
+        motivo = NO_DISPONIBLE
+    return {**formulario, "nombre": tipo.nombre, "motivo_no_disponible": motivo}
+
+
+def formulario_domicilio(cliente: Cliente) -> dict[str, Any]:
+    """What the portal's domicile form needs (HU-24); see formulario_portal."""
+    formulario = formulario_portal(tipo_domicilio(), cliente)
+    return {
+        "disponible": formulario["disponible"],
+        "motivo_no_disponible": formulario["motivo_no_disponible"],
+        "fecha_min": formulario["fecha_min"],
+        "fecha_max": formulario["fecha_max"],
+        "planes": formulario["planes"],
+        "sucursales": formulario["inmuebles"].get("sucursal", []),
+        "datos": formulario["datos"],
     }
 
 

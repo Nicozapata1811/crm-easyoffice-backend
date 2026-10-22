@@ -264,6 +264,20 @@ Tests use the simulated converter.
   - Who is domiciled where comes from contracts:
     `contratos.services.ocupantes(inmueble, fecha)`. `AsignacionDomicilio` was
     removed (HU-60).
+  - Requirement profiles (`inmuebles.services.REQUISITOS`) say what a
+    template prints about a property:
+    - `domicilio` (PLT-01, above).
+    - `ubicacion` (PLT-02's branch: address, comuna and region only).
+    - `bodega` (PLT-02's warehouse: address, rol, and a current owner who is
+      a **natural person** with RUT, nationality, civil status, profession
+      and both card sides as JPG/PNG).
+
+    Roles map to querysets (`ROLES`: `sucursal`, `bodega`).
+    `inmuebles_para(rol, fecha, requisito)` lists the eligible properties,
+    prefetching their authorisers (fixed query count). The admin shows "lista
+    para bodega (PLT-02)" and what is missing.
+  - `manage.py seed_demo_bodega` (DEBUG only) runs `seed_demo_domicilio`,
+    then adds two fictitious warehouses with person owners.
 - **Issuer configuration** (`configuracion/`, HU-65): `ConfigEmpresa` (one
   row, enforced by a constraint), `Marca` (EASY OFFICE, INOFFICE) and
   `CuentaPago` (`texto_contrato` is what the contract prints). Seeded with
@@ -357,7 +371,7 @@ Tests use the simulated converter.
     (a case and its dated history), `ventas.tests.factories.venta_pagada`
     and `documentos.tests.factories.documento_generado` (a row on the seeded
     PLT-01 v1, no file rendered). A query-count test keeps the dashboard at
-    a fixed number of queries. The whole suite has 546 tests.
+    a fixed number of queries. The whole suite has 637 tests.
 
 - **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
   `precio_confirmado=False`), `CicloPago` (único … anual, HU-23), `Venta`,
@@ -382,7 +396,9 @@ Tests use the simulated converter.
     the domicile flow); `0010_seed_servicios_visibles` adds bodega, arriendo
     de vehículo, arriendo de estacionamiento, acuerdo de accionistas and
     poder simple as visible, not bookable, with no price (assumption; their
-    descriptions are ours and edited in the admin). `precio_incluye_iva` records
+    descriptions are ours and edited in the admin); `0013_seed_planes_bodega`
+    then makes the bodega bookable by plan (see the warehouse case below).
+    `precio_incluye_iva` records
     how each price reads while the VAT question is open (RN-44 vs the
     template's "más I.V.A."); every price stays unconfirmed until then.
   - Plans (`PlanServicio`, HU-24): the portal sells domicilio tributario as
@@ -394,7 +410,11 @@ Tests use the simulated converter.
   - Not built yet: a refund endpoint (refund policy undefined).
 - **Cases** (`tramites/`, HU-24): `TipoTramite` (configuration JSONB:
   `servicio`, `marca`, `plantilla`, `requiere_pago`, `requiere_firma`,
-  `inicio_max_dias`), `MotivoPendiente` (TA-13 open), `Tramite` and its
+  `inicio_max_dias`, `planes`, `duracion_por_defecto`, `canales`,
+  `tipos_cliente`, `lineas[{servicio, inmueble, requisitos,
+  inmueble_exclusivo, incluido_en_plan}]`; `requiere_pago` may list the
+  channels that pay online; documented on the model; the two seeded types are
+  compared in `docs/variation-points.md`), `MotivoPendiente` (TA-13 open), `Tramite` and its
   append-only `EventoTramite` history. States follow RN-42: iniciado →
   pendiente (reason) → completado; moves go only through `tramites.services`
   against its `TRANSICIONES` table. A case links its draft contract and its
@@ -409,6 +429,54 @@ Tests use the simulated converter.
     confirmation, payment or signing asks the client for a new one
     (`cambiar_fecha_inicio`): contracts are never backdated. The start date is
     today … +30 days (assumption).
+  - The request functions are generic over the type and never compare its
+    name:
+    - `iniciar_tramite(tipo, cliente, datos, canal=…, usuario=…)`;
+    - `actualizar_tramite`, `cambiar_fecha_inicio`, `confirmar_borrador`;
+    - `formulario_tramite(tipo, cliente, canal)` (staff `problemas`) and
+      `formulario_portal(tipo, cliente)` (the client's plain reason and the
+      type's `nombre`).
+
+    `iniciar_domicilio`, `actualizar_domicilio` and `formulario_domicilio`
+    are the domicile's portal wrappers. Each side acts only on its own channel's
+    cases (`_exigir_canal`).
+  - **Warehouse case (PLT-02, tramites 0004 and 0005)**, type `bodega`
+    ("Bodega virtual"), `canales: ["portal", "backoffice"]`:
+    - Sold by plan (ventas 0013): anual 12, semestral 6 and trimestral 3
+      months, each 59.990 with the signature included. ASSUMPTION (TA-15):
+      the website's annual price as a placeholder; plans and the service's
+      list price are admin data, `precio_confirmado` false.
+    - Always two lines: the domicile at a branch (it heads the folio) and the
+      warehouse. The plan prices the warehouse line and pays the domicile
+      line too (`incluido_en_plan`: copied at $0 with the plan's cycle,
+      `contratos.LineaContrato.incluido_en`). The plan sets the term and the
+      expiry.
+    - Portal (company clients): request → draft → the client confirms → the
+      plan's sale (59.990) → payment → signed upload → in force.
+    - Backoffice: an executive with `tramites.iniciar_tramite`
+      (Administrador and Ejecutivo) picks the same plans; ASSUMPTION: no
+      online sale (`requiere_pago: ["portal"]`), the executive confirms the
+      draft (RN-13) and uploads the signed PDF.
+    - The warehouse is shared; `inmueble_exclusivo` switches on
+      `contratos.services.inmuebles_ocupados` (drafts hold it).
+    - The client sees a backoffice case read-only in the portal.
+    - Assumptions are listed in `docs/variation-points.md`.
+  - Portal API for types sold by plan: `GET /api/portal/tramites/formulario/?tipo=`
+    (`nombre`, plans, properties per role, pre-fill, plain reason),
+    `POST /api/portal/tramites/` (`tipo`, section A, `plan`, `sucursal`,
+    `bodega`, `fecha_inicio`) and `PUT /api/portal/tramites/{id}/`; confirm,
+    new date and payment use the existing case and sale endpoints.
+  - Backoffice API for it:
+    - `GET /api/tramites/tipos/?canal=backoffice`;
+    - `GET /api/tramites/formulario/?tipo=&cliente=` (`iniciar_tramite`;
+      `problemas` for staff);
+    - `POST /api/tramites/` (`iniciar_tramite`; a property per role at the
+      top level, `sucursal`/`bodega`, and `plan`, or `duracion_meses` and
+      `lineas` for a type without plans);
+    - `PUT /api/tramites/{id}/`, `POST …/{id}/confirmar/` and
+      `POST …/{id}/fecha-inicio/` (`gestionar_tramite`).
+
+    Serializers add `tipo_codigo` and `contrato.servicios` (every line).
   - Portal: `/api/portal/tramites/domicilio/formulario/` (availability,
     plans, ready branches, pre-fill from the client's own records),
     `POST /api/portal/tramites/domicilio/`, `/api/portal/tramites/` and
@@ -420,9 +488,14 @@ Tests use the simulated converter.
   `VersionPlantilla` (immutable once used), `Documento` (one version per
   generation: Word and PDF with their SHA-256, the frozen snapshot of every
   printed value and its source ids, the template version) and `Firmante`.
-  - PLT-01 is converted once (`manage.py convertir_plt01`) from the anonymised
-    template (`plantillas_semilla/`) into a docxtpl template; migration 0002
-    loads it as v1. `documentos.plt01.contexto` gives every field one source;
+  - PLT-01 and PLT-02 are converted once (`manage.py convertir_plantilla
+    PLT-0N`; `convertir_plt01` stays as an alias) from the anonymised
+    templates (`plantillas_semilla/`) into docxtpl templates; migrations 0002
+    and 0003 load them as v1. The shared steps are in `conversion/comun.py`
+    and the shared context in `documentos/comun.py` (`DatosIncompletosError`
+    lives there); PLT-02 adds OB-05: the term in words, the warehouse's
+    address, comuna, rol and region, and a person owner.
+    `documentos.plt01.contexto` / `plt02.contexto` give every field one source;
     the `generar_documento` Celery task renders it with docxtpl and converts
     it to PDF. Missing data or a failed conversion leaves no document: the
     case waits for information with the reason for the executive.
@@ -517,7 +590,10 @@ Done:
   HU-39, HU-40, HU-57);
 - domicilio tributario end to end on the real PLT-01: plans, draft contract,
   case states, document generation with docxtpl and Gotenberg, assisted
-  signature upload (HU-19..21, HU-24, HU-26..29, HU-61).
+  signature upload (HU-19..21, HU-24, HU-26..29, HU-61);
+- the warehouse contract (PLT-02) as the second case, started in the
+  backoffice, with the variation points for the engine in
+  `docs/variation-points.md`.
 
 Still to build: user management (HU-02) and the audit log (HU-30, RF-15). Until
 the audit log exists, client changes carry `TODO(RF-15)`.

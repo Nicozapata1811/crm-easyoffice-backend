@@ -30,6 +30,9 @@ pytestmark = pytest.mark.django_db
 seed = importlib.import_module(
     "crm_easyoffice.ventas.migrations.0012_seed_planes_domicilio",
 )
+seed_bodega = importlib.import_module(
+    "crm_easyoffice.ventas.migrations.0013_seed_planes_bodega",
+)
 
 
 def plan(codigo: str) -> PlanServicio:
@@ -61,7 +64,10 @@ class TestSeed:
 
         seed.seed(apps, None)
 
-        assert PlanServicio.objects.count() == 2  # noqa: PLR2004
+        domicilio = PlanServicio.objects.filter(
+            servicio__codigo="domicilio-tributario",
+        )
+        assert domicilio.count() == 2  # noqa: PLR2004
         assert plan("anual").precio == Decimal(61000)
 
     def test_seed_keeps_an_edited_signature_price(self):
@@ -72,6 +78,63 @@ class TestSeed:
         seed.seed(apps, None)
 
         assert precio_firma() == Decimal(5900)
+
+
+class TestSeedBodega:
+    def test_the_bodega_is_sold_online_in_three_plans(self):
+        planes = list(planes_en_portal("bodega"))
+
+        assert [(p.codigo, p.duracion_meses, p.ciclo_pago.codigo) for p in planes] == [
+            ("anual", 12, "anual"),
+            ("semestral", 6, "semestral"),
+            ("trimestral", 3, "trimestral"),
+        ]
+        assert {p.precio for p in planes} == {Decimal(59990)}
+        assert all(p.firma_incluida for p in planes)
+        assert not any(p.precio_confirmado for p in planes)
+
+    def test_the_bodega_service_is_bookable_at_an_unconfirmed_price(self):
+        bodega = Servicio.objects.get(codigo="bodega")
+
+        assert bodega.se_vende_en_portal is True
+        assert bodega.precio_base == Decimal(59990)
+        assert bodega.precio_confirmado is False
+        assert bodega.ciclo_pago_default.codigo == "anual"
+
+    def test_a_plan_charges_no_extra_signature(self):
+        anual = PlanServicio.objects.get(servicio__codigo="bodega", codigo="anual")
+
+        assert [
+            (linea.servicio.codigo, linea.precio) for linea in lineas_de_plan(anual)
+        ] == [
+            ("bodega", Decimal(59990)),
+        ]
+
+    def test_seed_is_idempotent_and_keeps_admin_edits(self):
+        PlanServicio.objects.filter(
+            servicio__codigo="bodega",
+            codigo="trimestral",
+        ).update(
+            precio=Decimal(25000),
+        )
+        Servicio.objects.filter(codigo="bodega").update(precio_base=Decimal(61000))
+
+        seed_bodega.seed(apps, None)
+
+        assert PlanServicio.objects.filter(servicio__codigo="bodega").count() == 3  # noqa: PLR2004
+        trimestral = PlanServicio.objects.get(
+            servicio__codigo="bodega",
+            codigo="trimestral",
+        )
+        assert trimestral.precio == Decimal(25000)
+        assert Servicio.objects.get(codigo="bodega").precio_base == Decimal(61000)
+
+    def test_reverse_takes_the_bodega_off_sale(self):
+        seed_bodega.unseed(apps, None)
+
+        bodega = Servicio.objects.get(codigo="bodega")
+        assert not PlanServicio.objects.filter(servicio=bodega).exists()
+        assert (bodega.se_vende_en_portal, bodega.precio_base) == (False, None)
 
 
 class TestPlanes:

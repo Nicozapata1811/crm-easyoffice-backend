@@ -89,13 +89,21 @@ ejecutarlo no duplica datos):
 docker compose -f docker-compose.local.yml run --rm django python manage.py seed_demo_clientes
 ```
 
+Completar las sucursales y agregar bodegas ficticias, listas para generar
+`PLT-01` y `PLT-02` (solo con `DEBUG` activo; no sobrescribe lo ingresado en
+el panel de administración):
+
+```bash
+docker compose -f docker-compose.local.yml run --rm django python manage.py seed_demo_bodega
+```
+
 Ejecutar las pruebas:
 
 ```bash
 docker compose -f docker-compose.local.yml run --rm django pytest
 ```
 
-La suite tiene 546 pruebas.
+La suite tiene 637 pruebas.
 
 | Servicio | URL |
 |---|---|
@@ -415,6 +423,49 @@ Los precios de `Servicio` se editan en el panel de administración; los cargados
 por la migración son valores de ejemplo, con `precio_confirmado` en falso. No
 hay endpoint de reembolso: Easy Office aún no define cuándo se devuelve un pago.
 
+### Trámite de bodega (PLT-02)
+
+Segundo caso real antes del motor configurable. Se vende por plan, en el portal
+y en el backoffice: anual (12 meses), semestral (6) y trimestral (3), cada uno a
+$59.990 con la firma electrónica avanzada incluida. Es un valor provisorio,
+el precio anual del sitio web de Easy Office `[SUPUESTO – VALIDAR CON EASY
+OFFICE]` (TA-15). Los planes y el precio de lista se editan en el panel de
+administración, sin desplegar.
+
+El contrato siempre lleva dos servicios: el domicilio tributario en una
+sucursal, que encabeza el folio, y la bodega. El plan cobra la bodega y paga
+también el domicilio, que el contrato imprime en $0 con el ciclo del plan. La
+duración y el vencimiento salen del plan, y la autorización los imprime en
+palabras ("TRES (3) MESES").
+
+- **En el portal** (solo empresas): el cliente elige la sucursal, la bodega, el
+  plan y la fecha; revisa el borrador, lo confirma, paga la venta del plan y
+  el ejecutivo sube el PDF firmado.
+- **En el backoffice**: un ejecutivo elige los mismos planes para el cliente.
+  `[SUPUESTO – VALIDAR CON EASY OFFICE]` Ese trámite no se paga en línea: el
+  ejecutivo registra que el cliente confirmó el borrador, sube el PDF firmado
+  y el contrato entra en vigencia. El cliente lo ve en el portal, sin
+  acciones.
+
+| Método y ruta | Permiso | Uso |
+|---|---|---|
+| `GET /api/tramites/tipos/?canal=backoffice` | `tramites.view_tramite` | Tipos de trámite que se inician en el backoffice |
+| `GET /api/tramites/formulario/?tipo=bodega&cliente={id}` | `tramites.iniciar_tramite` | Planes, sucursales y bodegas disponibles, servicios y datos precargados; `problemas` dice qué falta |
+| `POST /api/tramites/` | `tramites.iniciar_tramite` | `{tipo, cliente, empresa, representante, personeria, email_aviso, movil_aviso, fecha_inicio, plan, sucursal, bodega}` → `201` |
+| `PUT /api/tramites/{id}/` | `tramites.gestionar_tramite` | Edita la solicitud antes de la firma; el documento se genera de nuevo |
+| `POST /api/tramites/{id}/confirmar/` | `tramites.gestionar_tramite` | El cliente confirmó el borrador (RN-13) |
+| `POST /api/tramites/{id}/fecha-inicio/` | `tramites.gestionar_tramite` | Nueva fecha de inicio cuando la elegida ya pasó |
+| `GET /api/portal/tramites/formulario/?tipo=bodega` | Cliente del portal | Nombre del trámite, planes, sucursales y bodegas, datos precargados y, si no está disponible, un motivo para el cliente |
+| `POST /api/portal/tramites/` | Cliente del portal | `{tipo, empresa, representante, personeria, email_aviso, movil_aviso, fecha_inicio, plan, sucursal, bodega}` → `201` |
+| `PUT /api/portal/tramites/{id}/` | Cliente del portal | Edita la solicitud antes del pago |
+
+`iniciar_tramite` lo tienen el Administrador y el Ejecutivo. Una bodega se
+ofrece solo si tiene dirección, comuna, región, rol y un autorizante vigente
+persona natural con nacionalidad, estado civil, profesión y ambos lados de la
+cédula en JPG o PNG. Las diferencias con el domicilio, y lo que sugieren para
+el motor configurable, están en
+[`docs/variation-points.md`](docs/variation-points.md).
+
 ### Panel operativo (RF-14, HU-41)
 
 Ambas rutas requieren `core.view_dashboard`, que tienen el Administrador y el
@@ -558,7 +609,9 @@ Sprint 2 (6 – 17 de octubre de 2026). Ya están:
 - las ventas y el pago en línea con Klap Checkout Flex en su ambiente de
   pruebas (HU-38, HU-39, HU-40, HU-57);
 - la API de clientes (registro, edición, ficha, búsqueda y folio);
-- los indicadores del panel operativo, exportables a Excel.
+- los indicadores del panel operativo, exportables a Excel;
+- el domicilio tributario de punta a punta (PLT-01) y el contrato de bodega
+  (PLT-02), iniciado desde el backoffice.
 
 Siguen pendientes los campos definitivos del cliente, los estados de los
 trámites, las plantillas reales, el proveedor de firma, la confirmación del

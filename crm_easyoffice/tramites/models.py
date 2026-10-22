@@ -19,10 +19,26 @@ from crm_easyoffice.core.models import TimestampedModel
 class TipoTramite(TimestampedModel):
     """A kind of case, described by configuration rather than code.
 
-    ``configuracion`` (JSONB, edited in the admin) for the domicile:
-    ``servicio`` (catalogue code), ``marca``, ``plantilla`` (document
-    template code), ``requiere_pago``, ``requiere_firma`` and
-    ``inicio_max_dias`` (how far ahead the start date may be).
+    ``configuracion`` (JSONB, edited in the admin):
+
+    - ``servicio``: the catalogue code whose portal plans a ``planes`` type
+      sells; ``marca``; ``plantilla`` (document template code).
+    - ``requiere_pago``, ``requiere_firma``: true or false, or the channels
+      whose cases need the step (``["portal"]``); ``inicio_max_dias`` (how
+      far ahead the start date may be).
+    - ``planes``: the client picks a plan, which sets price, cycle and term;
+      otherwise the term is chosen (``duracion_por_defecto``) and each line
+      gets its cycle and, without a list price, the agreed price.
+    - ``lineas``: the contract's services in print order, each
+      ``{servicio, inmueble, requisitos, inmueble_exclusivo,
+      incluido_en_plan}``: the property role it is located at (``sucursal``
+      or ``bodega``), the profile that property must meet
+      (inmuebles.services.REQUISITOS), whether one client at a time may hold
+      it, and whether the plan of another line pays for it.
+    - ``canales``: where a case is started, ``portal`` and/or ``backoffice``.
+    - ``tipos_cliente``: ``empresa`` and/or ``persona``.
+
+    docs/variation-points.md compares the two seeded types.
     """
 
     codigo = models.SlugField(_("código"), max_length=50, unique=True)
@@ -160,6 +176,7 @@ class Tramite(TimestampedModel):
         ordering = ["-created_at", "-pk"]
         permissions = [
             ("gestionar_tramite", _("Can act on a case (retry its document)")),
+            ("iniciar_tramite", _("Can start a case for a client")),
         ]
         constraints = [
             models.CheckConstraint(

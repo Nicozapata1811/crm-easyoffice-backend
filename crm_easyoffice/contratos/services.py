@@ -6,6 +6,7 @@ import calendar
 from dataclasses import dataclass
 from datetime import date
 from datetime import timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -35,7 +36,6 @@ from .models import ServicioContratado
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from decimal import Decimal
 
     from django.db.models import QuerySet
 
@@ -56,7 +56,9 @@ class LineaContrato:
 
     ``ciclo_pago`` defaults to the service's cycle. ``precio`` is given only
     for a service without a fixed price; otherwise the list price is copied.
-    A ``plan`` (portal) sets both the price and the cycle.
+    A ``plan`` (portal) sets both the price and the cycle. ``incluido_en``
+    names the plan of another line of the same contract that already pays
+    for this one: it is copied at 0, with that plan's cycle.
     """
 
     servicio: Servicio
@@ -64,6 +66,7 @@ class LineaContrato:
     inmueble: Oficina | None = None
     precio: Decimal | None = None
     plan: PlanServicio | None = None
+    incluido_en: PlanServicio | None = None
 
 
 class ContratoNoEditableError(Exception):
@@ -141,6 +144,9 @@ def _servicios(lineas: Sequence[LineaContrato]) -> list[ServicioContratado]:
         if linea.plan is not None:
             _validar_plan(linea)
             ciclo = linea.plan.ciclo_pago
+        elif linea.incluido_en is not None:
+            _validar_incluida(linea, lineas)
+            ciclo = linea.incluido_en.ciclo_pago
         else:
             ciclo = linea.ciclo_pago or servicio.ciclo_pago_default
         if ciclo is None:
@@ -158,14 +164,10 @@ def _servicios(lineas: Sequence[LineaContrato]) -> list[ServicioContratado]:
                 servicio=servicio,
                 nombre=servicio.nombre,
                 descripcion=servicio.descripcion,
-                precio=(
-                    linea.plan.precio
-                    if linea.plan is not None
-                    else _precio(servicio, linea.precio)
-                ),
+                precio=_precio_de_linea(linea),
                 precio_incluye_iva=(
-                    linea.plan.precio_incluye_iva
-                    if linea.plan is not None
+                    (linea.plan or linea.incluido_en).precio_incluye_iva
+                    if linea.plan or linea.incluido_en
                     else servicio.precio_incluye_iva
                 ),
                 ciclo_pago=ciclo,
@@ -188,6 +190,32 @@ def _validar_plan(linea: LineaContrato) -> None:
     if linea.precio is not None or linea.ciclo_pago is not None:
         raise ValidationError(
             {"servicios": _("A plan sets its own price and payment cycle.")},
+        )
+
+
+def _precio_de_linea(linea: LineaContrato) -> Decimal:
+    if linea.plan is not None:
+        return linea.plan.precio
+    if linea.incluido_en is not None:
+        return Decimal(0)
+    return _precio(linea.servicio, linea.precio)
+
+
+def _validar_incluida(linea: LineaContrato, lineas: Sequence[LineaContrato]) -> None:
+    """A line paid by another line's plan: that plan must be in the contract.
+
+    ASSUMPTION: pending validation with Easy Office. A bundle (the PLT-02
+    domicile inside the bodega plan) is the only case where a service is
+    copied at 0; RN-44 still forbids any other special price.
+    """
+    planes = {otra.plan.pk for otra in lineas if otra.plan is not None}
+    if linea.incluido_en.pk not in planes:
+        raise ValidationError(
+            {"servicios": _("An included service needs its plan in the contract.")},
+        )
+    if linea.plan is not None or linea.precio is not None or linea.ciclo_pago:
+        raise ValidationError(
+            {"servicios": _("An included service takes its plan's terms.")},
         )
 
 
@@ -502,6 +530,46 @@ def ocupantes(inmueble: Oficina, fecha: date) -> list[Cliente]:
     return list(por_id.values())
 
 
+def inmuebles_ocupados(
+    inmueble_ids: Sequence[int],
+    desde: date,
+    hasta: date,
+    *,
+    excluir_contrato: int | None = None,
+) -> set[int]:
+    """Which of these properties a contract holds during ``desde`` … ``hasta``.
+
+    For a property only one client may use at a time. A draft or an in-force
+    contract holds it from its start to its expiry, or open-ended when it
+    renews automatically, unless it was terminated earlier. One query.
+
+    ASSUMPTION: pending validation with Easy Office. A draft (a request not
+    yet signed) already reserves an exclusive property.
+    """
+    contratos = Contrato.objects.filter(
+        estado__in=[Contrato.Estado.BORRADOR, Contrato.Estado.VIGENTE],
+        fecha_inicio__lte=hasta,
+    ).filter(
+        Q(renovacion_automatica=True) | Q(fecha_vencimiento__gte=desde),
+        Q(terminado_en__isnull=True) | Q(terminado_en__gte=desde),
+    )
+    if excluir_contrato is not None:
+        contratos = contratos.exclude(pk=excluir_contrato)
+    return set(
+        ServicioContratado.objects.filter(
+            inmueble_id__in=inmueble_ids,
+            contrato__in=contratos,
+        ).values_list("inmueble_id", flat=True),
+    )
+
+
+def duraciones_activas() -> list[int]:
+    """The terms a contract may have, in months (Easy Office's form)."""
+    return list(
+        DuracionContrato.objects.filter(activa=True).values_list("meses", flat=True),
+    )
+
+
 def opciones_contrato() -> dict[str, Any]:
     """What the contract form offers, gathered from each app's services."""
     return {
@@ -517,12 +585,7 @@ def opciones_contrato() -> dict[str, Any]:
             {"id": cuenta.pk, "texto_contrato": cuenta.texto_contrato}
             for cuenta in cuentas_pago_activas()
         ],
-        "duraciones": list(
-            DuracionContrato.objects.filter(activa=True).values_list(
-                "meses",
-                flat=True,
-            ),
-        ),
+        "duraciones": duraciones_activas(),
         "ciclos_pago": [
             {"codigo": ciclo.codigo, "nombre": ciclo.nombre}
             for ciclo in ciclos_pago_activos()
