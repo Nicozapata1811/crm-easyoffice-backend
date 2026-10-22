@@ -106,7 +106,6 @@ def registrar_cuenta_cliente(
             password=password,
             name=cliente.nombre,
         )
-        # TODO(RF-15): record the registration in the audit log (HU-30).
         return CuentaCliente.objects.create(user=user, cliente=cliente)
 
 
@@ -262,5 +261,4 @@ def guardar_datos_contratante(
         representacion.fecha_instrumento = personeria["fecha_instrumento"]
         representacion.sitio_o_notaria = personeria["sitio_o_notaria"]
         representacion.save()
-    # TODO(RF-15): record the changes in the audit log (HU-30).
     return representacion

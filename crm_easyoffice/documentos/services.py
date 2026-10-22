@@ -171,7 +171,6 @@ def generar(tramite: Tramite) -> Documento | None:
             for orden, (persona, rol) in enumerate(contexto.firmantes, start=1)
         )
         documento_listo(tramite)
-    # TODO(RF-15): record the generation in the audit log (HU-30).
     return documento
 
 
@@ -229,7 +228,6 @@ def registrar_firmado(documento: Documento, archivo: File, usuario: User) -> Doc
         documento.save()
         documento.firmantes.update(firmado_en=documento.firmado_en)
         completar(tramite, usuario)
-    # TODO(RF-15): record the upload in the audit log (HU-30).
     return documento
 
 

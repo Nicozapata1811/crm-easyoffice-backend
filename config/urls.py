@@ -34,6 +34,7 @@ urlpatterns += [
     path("api/", include("crm_easyoffice.documentos.api.urls")),
     path("api/auth/", include("crm_easyoffice.users.api.auth_urls")),
     path("api/panel/", include("crm_easyoffice.panel.api.urls")),
+    path("api/auditoria/", include("crm_easyoffice.core.api.urls")),
     path("api/inmuebles/", include("crm_easyoffice.inmuebles.api.urls")),
     path("api/portal/", include("config.portal_urls")),
     path("api/pagos/", include("crm_easyoffice.ventas.api.webhook_urls")),

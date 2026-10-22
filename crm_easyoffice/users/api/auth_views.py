@@ -70,7 +70,6 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         login(request, user)
-        # TODO(RF-15): record the login in the audit log (HU-01) once core has it.
         return Response(SessionUserSerializer(user).data)
 
 
