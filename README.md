@@ -103,7 +103,7 @@ Ejecutar las pruebas:
 docker compose -f docker-compose.local.yml run --rm django pytest
 ```
 
-La suite tiene 623 pruebas.
+La suite tiene 637 pruebas.
 
 | Servicio | URL |
 |---|---|
@@ -425,22 +425,39 @@ hay endpoint de reembolso: Easy Office aún no define cuándo se devuelve un pag
 
 ### Trámite de bodega (PLT-02)
 
-Segundo caso real antes del motor configurable. Lo inicia un ejecutivo desde el
-backoffice: la bodega no tiene precio de lista ni se vende en el portal. El
-contrato siempre lleva dos servicios: el domicilio tributario en una sucursal,
-que encabeza el folio, y la bodega, con el precio acordado y el ciclo que elige
-el ejecutivo. No hay pago en el flujo: el ejecutivo registra que el cliente
-confirmó el borrador, sube el PDF firmado y el contrato entra en vigencia. El
-cliente ve el trámite en el portal, sin acciones.
+Segundo caso real antes del motor configurable. Se vende por plan, en el portal
+y en el backoffice: anual (12 meses), semestral (6) y trimestral (3), cada uno a
+$59.990 con la firma electrónica avanzada incluida. Es un valor provisorio,
+el precio anual del sitio web de Easy Office `[SUPUESTO – VALIDAR CON EASY
+OFFICE]` (TA-15). Los planes y el precio de lista se editan en el panel de
+administración, sin desplegar.
+
+El contrato siempre lleva dos servicios: el domicilio tributario en una
+sucursal, que encabeza el folio, y la bodega. El plan cobra la bodega y paga
+también el domicilio, que el contrato imprime en $0 con el ciclo del plan. La
+duración y el vencimiento salen del plan, y la autorización los imprime en
+palabras ("TRES (3) MESES").
+
+- **En el portal** (solo empresas): el cliente elige la sucursal, la bodega, el
+  plan y la fecha; revisa el borrador, lo confirma, paga la venta del plan y
+  el ejecutivo sube el PDF firmado.
+- **En el backoffice**: un ejecutivo elige los mismos planes para el cliente.
+  `[SUPUESTO – VALIDAR CON EASY OFFICE]` Ese trámite no se paga en línea: el
+  ejecutivo registra que el cliente confirmó el borrador, sube el PDF firmado
+  y el contrato entra en vigencia. El cliente lo ve en el portal, sin
+  acciones.
 
 | Método y ruta | Permiso | Uso |
 |---|---|---|
 | `GET /api/tramites/tipos/?canal=backoffice` | `tramites.view_tramite` | Tipos de trámite que se inician en el backoffice |
-| `GET /api/tramites/formulario/?tipo=bodega&cliente={id}` | `tramites.iniciar_tramite` | Sucursales y bodegas disponibles, servicios, duraciones, ciclos y datos precargados; `problemas` dice qué falta |
-| `POST /api/tramites/` | `tramites.iniciar_tramite` | `{tipo, cliente, empresa, representante, personeria, email_aviso, movil_aviso, fecha_inicio, duracion_meses, sucursal, bodega, lineas: [{servicio, ciclo_pago, precio}]}` → `201` |
+| `GET /api/tramites/formulario/?tipo=bodega&cliente={id}` | `tramites.iniciar_tramite` | Planes, sucursales y bodegas disponibles, servicios y datos precargados; `problemas` dice qué falta |
+| `POST /api/tramites/` | `tramites.iniciar_tramite` | `{tipo, cliente, empresa, representante, personeria, email_aviso, movil_aviso, fecha_inicio, plan, sucursal, bodega}` → `201` |
 | `PUT /api/tramites/{id}/` | `tramites.gestionar_tramite` | Edita la solicitud antes de la firma; el documento se genera de nuevo |
 | `POST /api/tramites/{id}/confirmar/` | `tramites.gestionar_tramite` | El cliente confirmó el borrador (RN-13) |
 | `POST /api/tramites/{id}/fecha-inicio/` | `tramites.gestionar_tramite` | Nueva fecha de inicio cuando la elegida ya pasó |
+| `GET /api/portal/tramites/formulario/?tipo=bodega` | Cliente del portal | Nombre del trámite, planes, sucursales y bodegas, datos precargados y, si no está disponible, un motivo para el cliente |
+| `POST /api/portal/tramites/` | Cliente del portal | `{tipo, empresa, representante, personeria, email_aviso, movil_aviso, fecha_inicio, plan, sucursal, bodega}` → `201` |
+| `PUT /api/portal/tramites/{id}/` | Cliente del portal | Edita la solicitud antes del pago |
 
 `iniciar_tramite` lo tienen el Administrador y el Ejecutivo. Una bodega se
 ofrece solo si tiene dirección, comuna, región, rol y un autorizante vigente
