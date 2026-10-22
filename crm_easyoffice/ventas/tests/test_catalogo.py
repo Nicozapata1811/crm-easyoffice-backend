@@ -177,9 +177,12 @@ class TestPortal:
 visibles = importlib.import_module(
     "crm_easyoffice.ventas.migrations.0010_seed_servicios_visibles",
 )
+planes_bodega = importlib.import_module(
+    "crm_easyoffice.ventas.migrations.0013_seed_planes_bodega",
+)
 
+# The bodega left this list when it became bookable by plan (0013).
 PROXIMAMENTE = [
-    "bodega",
     "arriendo-vehiculo",
     "arriendo-estacionamiento",
     "acuerdo-accionistas",
@@ -214,14 +217,16 @@ class TestSeedVisibles:
         assert firma.se_vende_en_portal is True
 
     def test_seed_is_idempotent_and_keeps_admin_edits(self):
-        Servicio.objects.filter(codigo="bodega").update(descripcion="Texto editado")
+        Servicio.objects.filter(codigo="poder-simple").update(
+            descripcion="Texto editado",
+        )
 
         visibles.seed(apps, None)
 
         assert Servicio.objects.filter(codigo__in=PROXIMAMENTE).count() == len(
             PROXIMAMENTE,
         )
-        assert servicio("bodega").descripcion == "Texto editado"
+        assert servicio("poder-simple").descripcion == "Texto editado"
 
     def test_seed_leaves_existing_sales_untouched(self):
         domicilio = servicio("domicilio-tributario")
@@ -238,18 +243,20 @@ class TestSeedVisibles:
             lineas=[
                 domicilio_en("LF"),
                 LineaContrato(
-                    servicio=servicio("bodega"),
+                    servicio=servicio("poder-simple"),
                     ciclo_pago=CicloPago.objects.get(codigo="mensual"),
                     precio=Decimal(50000),
                 ),
             ],
         )
 
+        # Migrations reverse in order: the bodega's plans go first.
+        planes_bodega.unseed(apps, None)
         visibles.unseed(apps, None)
 
         codigos = set(Servicio.objects.values_list("codigo", flat=True))
-        assert "bodega" in codigos
-        assert codigos.isdisjoint(set(PROXIMAMENTE) - {"bodega"})
+        assert "poder-simple" in codigos
+        assert codigos.isdisjoint({*PROXIMAMENTE, "bodega"} - {"poder-simple"})
         assert servicio("domicilio-tributario").visible_en_portal is False
 
 
@@ -280,9 +287,10 @@ class TestVisibilidad:
         response = APIClient().get(reverse("portal:servicio-list"))
 
         por_codigo = {fila["codigo"]: fila for fila in response.data}
-        assert por_codigo["bodega"]["visible_en_portal"] is True
-        assert por_codigo["bodega"]["se_vende_en_portal"] is False
-        assert por_codigo["bodega"]["precio_base"] is None
+        assert por_codigo["arriendo-vehiculo"]["visible_en_portal"] is True
+        assert por_codigo["arriendo-vehiculo"]["se_vende_en_portal"] is False
+        assert por_codigo["arriendo-vehiculo"]["precio_base"] is None
+        assert por_codigo["bodega"]["se_vende_en_portal"] is True
         assert por_codigo["domicilio-tributario"]["se_vende_en_portal"] is True
         assert por_codigo["firma-electronica-avanzada"]["visible_en_portal"] is False
 
@@ -322,7 +330,7 @@ class TestVisibilidad:
 
         response = api_client.post(
             reverse("portal:venta-list"),
-            {"items": [{"servicio": "bodega", "cantidad": 1}]},
+            {"items": [{"servicio": "poder-simple", "cantidad": 1}]},
             format="json",
         )
 

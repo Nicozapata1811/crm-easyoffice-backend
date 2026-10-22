@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
 
 import pytest
 
@@ -34,7 +33,6 @@ def con_bodega(bodega, **datos) -> Contrato:
     linea = LineaContrato(
         servicio=servicio("bodega"),
         inmueble=bodega,
-        precio=Decimal(20000),
         ciclo_pago=CicloPago.objects.get(codigo="anual"),
     )
     return nuevo_contrato(lineas=[domicilio_en("LF"), linea], **datos)
