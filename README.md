@@ -89,13 +89,21 @@ ejecutarlo no duplica datos):
 docker compose -f docker-compose.local.yml run --rm django python manage.py seed_demo_clientes
 ```
 
+Completar las sucursales y agregar bodegas ficticias, listas para generar
+`PLT-01` y `PLT-02` (solo con `DEBUG` activo; no sobrescribe lo ingresado en
+el panel de administración):
+
+```bash
+docker compose -f docker-compose.local.yml run --rm django python manage.py seed_demo_bodega
+```
+
 Ejecutar las pruebas:
 
 ```bash
 docker compose -f docker-compose.local.yml run --rm django pytest
 ```
 
-La suite tiene 546 pruebas.
+La suite tiene 623 pruebas.
 
 | Servicio | URL |
 |---|---|
@@ -415,6 +423,32 @@ Los precios de `Servicio` se editan en el panel de administración; los cargados
 por la migración son valores de ejemplo, con `precio_confirmado` en falso. No
 hay endpoint de reembolso: Easy Office aún no define cuándo se devuelve un pago.
 
+### Trámite de bodega (PLT-02)
+
+Segundo caso real antes del motor configurable. Lo inicia un ejecutivo desde el
+backoffice: la bodega no tiene precio de lista ni se vende en el portal. El
+contrato siempre lleva dos servicios: el domicilio tributario en una sucursal,
+que encabeza el folio, y la bodega, con el precio acordado y el ciclo que elige
+el ejecutivo. No hay pago en el flujo: el ejecutivo registra que el cliente
+confirmó el borrador, sube el PDF firmado y el contrato entra en vigencia. El
+cliente ve el trámite en el portal, sin acciones.
+
+| Método y ruta | Permiso | Uso |
+|---|---|---|
+| `GET /api/tramites/tipos/?canal=backoffice` | `tramites.view_tramite` | Tipos de trámite que se inician en el backoffice |
+| `GET /api/tramites/formulario/?tipo=bodega&cliente={id}` | `tramites.iniciar_tramite` | Sucursales y bodegas disponibles, servicios, duraciones, ciclos y datos precargados; `problemas` dice qué falta |
+| `POST /api/tramites/` | `tramites.iniciar_tramite` | `{tipo, cliente, empresa, representante, personeria, email_aviso, movil_aviso, fecha_inicio, duracion_meses, sucursal, bodega, lineas: [{servicio, ciclo_pago, precio}]}` → `201` |
+| `PUT /api/tramites/{id}/` | `tramites.gestionar_tramite` | Edita la solicitud antes de la firma; el documento se genera de nuevo |
+| `POST /api/tramites/{id}/confirmar/` | `tramites.gestionar_tramite` | El cliente confirmó el borrador (RN-13) |
+| `POST /api/tramites/{id}/fecha-inicio/` | `tramites.gestionar_tramite` | Nueva fecha de inicio cuando la elegida ya pasó |
+
+`iniciar_tramite` lo tienen el Administrador y el Ejecutivo. Una bodega se
+ofrece solo si tiene dirección, comuna, región, rol y un autorizante vigente
+persona natural con nacionalidad, estado civil, profesión y ambos lados de la
+cédula en JPG o PNG. Las diferencias con el domicilio, y lo que sugieren para
+el motor configurable, están en
+[`docs/variation-points.md`](docs/variation-points.md).
+
 ### Panel operativo (RF-14, HU-41)
 
 Ambas rutas requieren `core.view_dashboard`, que tienen el Administrador y el
@@ -558,7 +592,9 @@ Sprint 2 (6 – 17 de octubre de 2026). Ya están:
 - las ventas y el pago en línea con Klap Checkout Flex en su ambiente de
   pruebas (HU-38, HU-39, HU-40, HU-57);
 - la API de clientes (registro, edición, ficha, búsqueda y folio);
-- los indicadores del panel operativo, exportables a Excel.
+- los indicadores del panel operativo, exportables a Excel;
+- el domicilio tributario de punta a punta (PLT-01) y el contrato de bodega
+  (PLT-02), iniciado desde el backoffice.
 
 Siguen pendientes los campos definitivos del cliente, los estados de los
 trámites, las plantillas reales, el proveedor de firma, la confirmación del
