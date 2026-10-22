@@ -542,7 +542,6 @@ def iniciar_tramite(
             usuario=usuario,
         )
         _pedir_documento(tramite)
-    # TODO(RF-15): record the case in the audit log (HU-30).
     return tramite
 
 
