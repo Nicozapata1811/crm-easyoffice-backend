@@ -1,4 +1,8 @@
-"""The warehouse case (PLT-02), started by an executive. Synthetic data only."""
+"""The warehouse case (PLT-02) started by an executive. Synthetic data only.
+
+The bodega is sold by plan (ventas 0013): the executive picks one of the
+portal's plans, and a backoffice case is paid outside the platform.
+"""
 
 from __future__ import annotations
 
@@ -46,6 +50,7 @@ from crm_easyoffice.ventas.models import Venta
 pytestmark = pytest.mark.django_db
 
 BACKOFFICE = Tramite.Canal.BACKOFFICE
+PORTAL = Tramite.Canal.PORTAL
 
 
 @pytest.fixture
@@ -90,42 +95,52 @@ def test_the_seed_explains_both_types():
     domicilio = TipoTramite.objects.get(codigo=TIPO_DOMICILIO).configuracion
     bodega = tipo().configuracion
 
-    assert (domicilio["planes"], domicilio["canal"]) == (True, "portal")
-    assert (bodega["planes"], bodega["canal"]) == (False, "backoffice")
-    assert bodega["requiere_pago"] is False
-    assert [linea["inmueble"] for linea in bodega["lineas"]] == ["sucursal", "bodega"]
+    assert (domicilio["planes"], domicilio["canales"]) == (True, ["portal"])
+    assert "canal" not in domicilio
+    assert (bodega["planes"], bodega["canales"]) == (True, ["portal", "backoffice"])
+    assert bodega["requiere_pago"] == ["portal"]
+    assert [
+        (linea["inmueble"], linea.get("incluido_en_plan", False))
+        for linea in bodega["lineas"]
+    ] == [("sucursal", True), ("bodega", False)]
     assert [t.codigo for t in tipos_iniciables(BACKOFFICE)] == [TIPO_BODEGA]
+    assert {t.codigo for t in tipos_iniciables(PORTAL)} == {TIPO_DOMICILIO, TIPO_BODEGA}
 
 
 class TestIniciar:
-    def test_records_both_lines_on_a_draft_with_the_branch_folio(
+    def test_the_plan_pays_both_lines_on_a_draft_with_the_branch_folio(
         self,
         cliente,
         inmuebles,
         ejecutivo,
     ):
         sucursal, bodega = inmuebles
-        tramite = nuevo(cliente, inmuebles, ejecutivo)
+        tramite = nuevo(cliente, inmuebles, ejecutivo, plan="semestral")
 
         assert (tramite.canal, situacion(tramite)) == (BACKOFFICE, ("iniciado", None))
         contrato = tramite.contrato
         assert contrato.estado == Contrato.Estado.BORRADOR
         assert contrato.folio.startswith("LF-")
-        assert contrato.duracion_meses == 12  # noqa: PLR2004
+        assert contrato.duracion_meses == 6  # noqa: PLR2004
         assert contrato.ejecutivo_responsable == ejecutivo
         lineas = list(contrato.servicios.order_by("orden"))
-        assert [(s.servicio.codigo, s.inmueble) for s in lineas] == [
-            ("domicilio-tributario", sucursal),
-            ("bodega", bodega),
+        assert [
+            (s.servicio.codigo, s.inmueble, s.precio, s.ciclo_pago.codigo)
+            for s in lineas
+        ] == [
+            ("domicilio-tributario", sucursal, Decimal(0), "semestral"),
+            ("bodega", bodega, Decimal(59990), "semestral"),
         ]
-        assert lineas[1].precio == Decimal(20000)
-        assert lineas[1].ciclo_pago.codigo == "anual"
-        assert tramite.datos["bodega"] == bodega.pk
-        assert "plan" not in tramite.datos
+        assert tramite.datos == {
+            "plan": "semestral",
+            "sucursal": sucursal.pk,
+            "bodega": bodega.pk,
+            "fecha_inicio": timezone.localdate().isoformat(),
+        }
 
     def test_a_person_client_is_refused(self, cliente, inmuebles):
         sucursal, bodega = inmuebles
-        with pytest.raises(TramiteNoDisponibleError):
+        with pytest.raises(TramiteNoDisponibleError) as error:
             iniciar_tramite(
                 tipo(),
                 ClienteFactory.create(),
@@ -133,32 +148,24 @@ class TestIniciar:
                 canal=BACKOFFICE,
             )
 
-    def test_the_portal_cannot_start_it(self, cliente, inmuebles):
-        sucursal, bodega = inmuebles
-        with pytest.raises(TramiteNoDisponibleError):
-            iniciar_tramite(
-                tipo(),
-                cliente,
-                datos_bodega(cliente, sucursal, bodega),
-                canal=Tramite.Canal.PORTAL,
-            )
+        assert error.value.detalle == [
+            "«Bodega virtual» no es para este tipo de cliente.",
+        ]
 
-    def test_the_warehouse_needs_its_agreed_price(self, cliente, inmuebles):
+    def test_an_unknown_plan_is_refused(self, cliente, inmuebles):
         with pytest.raises(ValidationError) as error:
-            nuevo(cliente, inmuebles, lineas=[{"servicio": "bodega"}])
+            nuevo(cliente, inmuebles, plan="mensual")
 
-        assert set(error.value.message_dict) == {"servicios"}
+        assert set(error.value.message_dict) == {"plan"}
         assert not Tramite.objects.exists()
 
-    def test_the_domicile_keeps_its_list_price(self, cliente, inmuebles):
-        lineas = [
-            {"servicio": "domicilio-tributario", "precio": "1000"},
-            {"servicio": "bodega", "ciclo_pago": "anual", "precio": "20000"},
-        ]
-        with pytest.raises(ValidationError) as error:
-            nuevo(cliente, inmuebles, lineas=lineas)
+    def test_a_domicile_plan_is_not_a_bodega_plan(self, cliente, inmuebles):
+        from crm_easyoffice.ventas.models import PlanServicio  # noqa: PLC0415
 
-        assert set(error.value.message_dict) == {"servicios"}
+        PlanServicio.objects.filter(servicio__codigo="bodega").update(activo=False)
+
+        with pytest.raises(TramiteNoDisponibleError):
+            nuevo(cliente, inmuebles)
 
     def test_an_incomplete_warehouse_is_refused(self, cliente, inmuebles):
         _, bodega = inmuebles
@@ -233,24 +240,27 @@ class TestDisponibilidad:
 
         actualizar_tramite(
             tramite,
-            datos_bodega(cliente, sucursal, bodega, duracion_meses=6),
+            datos_bodega(cliente, sucursal, bodega, plan="trimestral"),
             canal=BACKOFFICE,
         )
 
         tramite.contrato.refresh_from_db()
-        assert tramite.contrato.duracion_meses == 6  # noqa: PLR2004
+        assert tramite.contrato.duracion_meses == 3  # noqa: PLR2004
 
 
 class TestFormulario:
-    def test_offers_ready_branches_warehouses_and_the_lines(self, cliente, inmuebles):
+    def test_offers_the_plans_ready_properties_and_lines(self, cliente, inmuebles):
         sucursal, bodega = inmuebles
 
         formulario = formulario_tramite(tipo(), cliente)
 
         assert formulario["disponible"] is True
-        assert formulario["planes"] == []
-        assert 12 in formulario["duraciones"]  # noqa: PLR2004
-        assert formulario["duracion_por_defecto"] == 12  # noqa: PLR2004
+        assert [(p.codigo, p.duracion_meses) for p in formulario["planes"]] == [
+            ("anual", 12),
+            ("semestral", 6),
+            ("trimestral", 3),
+        ]
+        assert formulario["duraciones"] == []
         assert formulario["inmuebles"] == {"sucursal": [sucursal], "bodega": [bodega]}
         assert [linea["servicio"].codigo for linea in formulario["lineas"]] == [
             "domicilio-tributario",

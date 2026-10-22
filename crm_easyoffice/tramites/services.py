@@ -119,7 +119,7 @@ TRANSICIONES: dict[Situacion, set[Situacion]] = {
 
 NUEVA_FECHA = "La fecha de inicio ya pasó: elige una nueva para emitir el contrato."
 SOLO_EMPRESAS = (
-    "El domicilio tributario en línea es para empresas. Escríbenos y te ayudamos "
+    "El trámite «{nombre}» en línea es para empresas. Escríbenos y te ayudamos "
     "a contratarlo."
 )
 
@@ -185,9 +185,17 @@ def tipo_domicilio() -> TipoTramite:
     return tipo_tramite(TIPO_DOMICILIO)
 
 
+def canales(tipo: TipoTramite) -> list[str]:
+    """Where a case of this type may be started (``canales``)."""
+    return list(tipo.configuracion.get("canales", []))
+
+
 def tipos_iniciables(canal: str) -> QuerySet[TipoTramite]:
     """Active case types a case may be started for through ``canal``."""
-    return TipoTramite.objects.filter(activo=True, configuracion__canal=canal)
+    return TipoTramite.objects.filter(
+        activo=True,
+        configuracion__canales__contains=[canal],
+    )
 
 
 def ventana_fecha_inicio(
@@ -202,8 +210,16 @@ def ventana_fecha_inicio(
     return hoy, hoy + timedelta(days=tipo.configuracion.get("inicio_max_dias", 30))
 
 
-def _requiere(tipo: TipoTramite, paso: str) -> bool:
-    return bool(tipo.configuracion.get(paso, True))
+def _requiere(tramite: Tramite, paso: str) -> bool:
+    """Whether the case goes through ``paso`` (requiere_pago, requiere_firma).
+
+    The value is true or false, or the channels whose cases need the step:
+    the bodega is paid online only when the client files it in the portal.
+    """
+    valor = tramite.tipo.configuracion.get(paso, True)
+    if isinstance(valor, list):
+        return tramite.canal in valor
+    return bool(valor)
 
 
 def _con_planes(tipo: TipoTramite) -> bool:
@@ -228,14 +244,19 @@ def _servicios_de(tipo: TipoTramite) -> dict[str, Servicio]:
     return {s.codigo: s for s in servicios_contratables().filter(codigo__in=codigos)}
 
 
-def no_disponible(cliente: Cliente, tipo: TipoTramite) -> list[str]:
-    """Why this client cannot file the case today; empty if they can.
+def no_disponible(
+    cliente: Cliente,
+    tipo: TipoTramite,
+    canal: str = Tramite.Canal.PORTAL,
+) -> list[str]:
+    """Why this client cannot file the case today through ``canal``.
 
-    The messages are for staff, except the portal client's own (SOLO_EMPRESAS).
+    Empty if they can. The messages are for staff, except the one a portal
+    client reads when the type is not for them (SOLO_EMPRESAS).
     """
     if not cliente_admitido(cliente, tipo):
-        if tipo.configuracion.get("canal") == Tramite.Canal.PORTAL:
-            return [SOLO_EMPRESAS]
+        if canal == Tramite.Canal.PORTAL:
+            return [SOLO_EMPRESAS.format(nombre=tipo.nombre)]
         return [f"«{tipo.nombre}» no es para este tipo de cliente."]
     problemas = problemas_para_contrato(tipo.configuracion.get("marca", ""))
     if (
@@ -331,7 +352,7 @@ def _validar_eleccion(
     if _con_planes(tipo):
         plan = (
             planes_en_portal(tipo.configuracion.get("servicio", ""))
-            .filter(codigo=datos["plan"])
+            .filter(codigo=datos.get("plan", ""))
             .first()
         )
         if plan is None:
@@ -377,9 +398,11 @@ def _lineas(
 ) -> list[LineaContrato]:
     """The contract's lines in the configured order.
 
-    The plan's service takes the plan (price, cycle, duration); any other
-    line takes the cycle chosen for it, or its service's default, and the
-    agreed price when its service has no list price (contratos checks RN-44).
+    The plan's service takes the plan (price, cycle, duration); a line
+    configured ``incluido_en_plan`` is paid by it (copied at 0, with the
+    plan's cycle); any other line takes the cycle chosen for it, or its
+    service's default, and the agreed price when its service has no list
+    price (contratos checks RN-44).
     """
     servicios = _servicios_de(tipo)
     ciclos = {ciclo.codigo: ciclo for ciclo in ciclos_pago_activos()}
@@ -391,6 +414,11 @@ def _lineas(
         if plan is not None and plan.servicio_id == servicio.pk:
             lineas.append(
                 LineaContrato(servicio=servicio, inmueble=inmueble, plan=plan),
+            )
+            continue
+        if plan is not None and linea.get("incluido_en_plan", False):
+            lineas.append(
+                LineaContrato(servicio=servicio, inmueble=inmueble, incluido_en=plan),
             )
             continue
         elegida = por_servicio.get(servicio.codigo, {})
@@ -474,9 +502,9 @@ def iniciar_tramite(
         crm_easyoffice.clientes.services.RepresentanteNoDisponibleError: The
             representative's RUT is someone else's record.
     """
-    if problemas := no_disponible(cliente, tipo):
+    if problemas := no_disponible(cliente, tipo, canal):
         raise TramiteNoDisponibleError(problemas)
-    if tipo.configuracion.get("canal") != canal:
+    if canal not in canales(tipo):
         raise TramiteNoDisponibleError([f"«{tipo.nombre}» no se inicia por {canal}."])
     eleccion = _validar_eleccion(tipo, datos)
     marca = marcas_activas().get(nombre=tipo.configuracion["marca"])
@@ -698,7 +726,7 @@ def confirmar_borrador(
     if fecha_inicio_vencida(tramite):
         raise FechaInicioVencidaError
     detalle = CONFIRMADO_POR_EJECUTIVO if canal == Tramite.Canal.BACKOFFICE else ""
-    if not _requiere(tramite.tipo, "requiere_pago"):
+    if not _requiere(tramite, "requiere_pago"):
         return _mover(tramite, PENDIENTE, FIRMA, usuario=usuario, detalle=detalle)
 
     plan = (
@@ -783,16 +811,22 @@ def _disponibles(
     return [i for i in inmuebles if i.pk not in ocupados]
 
 
-def formulario_tramite(tipo: TipoTramite, cliente: Cliente) -> dict[str, Any]:
+def formulario_tramite(
+    tipo: TipoTramite,
+    cliente: Cliente,
+    canal: str = Tramite.Canal.BACKOFFICE,
+) -> dict[str, Any]:
     """What a request form needs: availability, choices and the pre-fill.
 
     The pre-fill comes only from the client's own records; a field they have
     never filled is blank. Properties and problems are computed for today;
     the request is checked again for its start date. ``problemas`` is for
-    staff.
+    staff; ``formulario_portal`` turns it into the client's reason.
     """
     desde, hasta = ventana_fecha_inicio(tipo)
-    problemas = no_disponible(cliente, tipo)
+    problemas = no_disponible(cliente, tipo, canal)
+    if canal not in canales(tipo):
+        problemas.append(f"«{tipo.nombre}» no se inicia por {canal}.")
     inmuebles: dict[str, list[Oficina]] = {}
     if not problemas:
         for linea in _lineas_config(tipo):
@@ -835,22 +869,28 @@ def formulario_tramite(tipo: TipoTramite, cliente: Cliente) -> dict[str, Any]:
     }
 
 
-def formulario_domicilio(cliente: Cliente) -> dict[str, Any]:
-    """What the portal's domicile form needs (HU-24); see formulario_tramite.
+def formulario_portal(tipo: TipoTramite, cliente: Cliente) -> dict[str, Any]:
+    """What a portal request form needs; see formulario_tramite.
 
     The client reads a plain reason, never the staff detail.
     """
-    formulario = formulario_tramite(tipo_domicilio(), cliente)
-    problemas = formulario["problemas"]
+    formulario = formulario_tramite(tipo, cliente, Tramite.Canal.PORTAL)
+    problemas = formulario.pop("problemas")
     motivo = ""
-    if cliente.empresa_id is None:
+    if not cliente_admitido(cliente, tipo):
         motivo = problemas[0]
     elif problemas:
-        logger.warning("Online domicile unavailable: %s", "; ".join(problemas))
+        logger.warning("Online %s unavailable: %s", tipo.codigo, "; ".join(problemas))
         motivo = NO_DISPONIBLE
+    return {**formulario, "nombre": tipo.nombre, "motivo_no_disponible": motivo}
+
+
+def formulario_domicilio(cliente: Cliente) -> dict[str, Any]:
+    """What the portal's domicile form needs (HU-24); see formulario_portal."""
+    formulario = formulario_portal(tipo_domicilio(), cliente)
     return {
         "disponible": formulario["disponible"],
-        "motivo_no_disponible": motivo,
+        "motivo_no_disponible": formulario["motivo_no_disponible"],
         "fecha_min": formulario["fecha_min"],
         "fecha_max": formulario["fecha_max"],
         "planes": formulario["planes"],

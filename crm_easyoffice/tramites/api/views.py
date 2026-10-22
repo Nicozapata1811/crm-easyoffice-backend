@@ -37,6 +37,7 @@ from crm_easyoffice.tramites.services import actualizar_tramite
 from crm_easyoffice.tramites.services import cambiar_fecha_inicio
 from crm_easyoffice.tramites.services import confirmar_borrador
 from crm_easyoffice.tramites.services import formulario_domicilio
+from crm_easyoffice.tramites.services import formulario_portal
 from crm_easyoffice.tramites.services import formulario_tramite
 from crm_easyoffice.tramites.services import iniciar_domicilio
 from crm_easyoffice.tramites.services import iniciar_tramite
@@ -49,8 +50,10 @@ from .serializers import DomicilioSerializer
 from .serializers import EdicionBackofficeSerializer
 from .serializers import FechaInicioSerializer
 from .serializers import FormularioBackofficeSerializer
+from .serializers import FormularioPortalSerializer
 from .serializers import FormularioSerializer
 from .serializers import SolicitudBackofficeSerializer
+from .serializers import SolicitudPortalSerializer
 from .serializers import TipoTramiteSerializer
 from .serializers import TramiteBackofficeSerializer
 from .serializers import TramiteSerializer
@@ -85,6 +88,18 @@ class PuedeIniciarTramites(BasePermission):
 
 def cliente_de(request: Request) -> Cliente:
     return request.user.cuenta_cliente.cliente  # type: ignore[union-attr]
+
+
+def _tipo_activo(codigo: str) -> TipoTramite:
+    """The active case type a request names.
+
+    Raises:
+        rest_framework.exceptions.ValidationError: No such active type.
+    """
+    tipo = TipoTramite.objects.filter(codigo=codigo, activo=True).first()
+    if tipo is None:
+        raise ValidationError({"tipo": [_("Unknown case type.")]})
+    return tipo
 
 
 def _tipo_y_cliente(codigo: str, cliente_id: str | int) -> tuple[TipoTramite, Cliente]:
@@ -197,6 +212,55 @@ class TramitePortalViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         if getattr(self, "swagger_fake_view", False):
             return Tramite.objects.none()
         return _con_tramite(Tramite.objects.filter(cliente=cliente_de(self.request)))
+
+    @extend_schema(
+        parameters=[OpenApiParameter("tipo", str, required=True)],
+        responses=FormularioPortalSerializer,
+    )
+    @action(detail=False, methods=["get"])
+    def formulario(self, request: Request) -> Response:
+        """What the request form of a type sold online offers this client."""
+        tipo = _tipo_activo(request.query_params.get("tipo", ""))
+        serializer = FormularioPortalSerializer(
+            formulario_portal(tipo, cliente_de(request)),
+            context={"precio_firma": precio_firma()},
+        )
+        return Response(serializer.data)
+
+    @extend_schema(
+        request=SolicitudPortalSerializer,
+        responses={201: TramiteSerializer},
+    )
+    def create(self, request: Request) -> Response:
+        """File a request for a type sold online (e.g. the bodega, PLT-02)."""
+        serializer = SolicitudPortalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = dict(serializer.validated_data)
+        tipo = _tipo_activo(datos.pop("tipo"))
+        return _responder(
+            lambda: iniciar_tramite(
+                tipo,
+                cliente_de(request),
+                datos,
+                canal=Tramite.Canal.PORTAL,
+                usuario=request.user,
+            ),
+            creado=True,
+        )
+
+    @extend_schema(request=EdicionBackofficeSerializer, responses=TramiteSerializer)
+    def update(self, request: Request, pk: str | None = None) -> Response:
+        """Change a request before it is paid; its document is generated again."""
+        tramite = self.get_object()
+        serializer = EdicionBackofficeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return _responder(
+            lambda: actualizar_tramite(
+                tramite,
+                serializer.validated_data,
+                request.user,
+            ),
+        )
 
     @extend_schema(request=DomicilioSerializer, responses={201: TramiteSerializer})
     @action(detail=False, methods=["post"], url_path="domicilio")

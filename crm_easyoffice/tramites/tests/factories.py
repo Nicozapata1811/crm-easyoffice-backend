@@ -104,16 +104,11 @@ def cliente_empresa() -> Cliente:
 
 
 def datos_bodega(cliente, sucursal: Oficina, bodega: Oficina, **extra: Any):
-    """The warehouse form as the serializer leaves it (validated values)."""
-    datos = datos_domicilio(cliente, sucursal)
-    del datos["plan"]
-    return {
-        **datos,
-        "bodega": bodega.pk,
-        "duracion_meses": 12,
-        "lineas": [{"servicio": "bodega", "ciclo_pago": "anual", "precio": "20000"}],
-        **extra,
-    }
+    """The warehouse form as the serializer leaves it (validated values).
+
+    The bodega is sold by plan (ventas 0013): ``plan`` is anual by default.
+    """
+    return {**datos_domicilio(cliente, sucursal), "bodega": bodega.pk, **extra}
 
 
 def payload_bodega(cliente, sucursal: Oficina, bodega: Oficina, **extra: Any):

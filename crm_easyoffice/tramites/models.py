@@ -23,17 +23,19 @@ class TipoTramite(TimestampedModel):
 
     - ``servicio``: the catalogue code whose portal plans a ``planes`` type
       sells; ``marca``; ``plantilla`` (document template code).
-    - ``requiere_pago``, ``requiere_firma``; ``inicio_max_dias`` (how far
-      ahead the start date may be).
+    - ``requiere_pago``, ``requiere_firma``: true or false, or the channels
+      whose cases need the step (``["portal"]``); ``inicio_max_dias`` (how
+      far ahead the start date may be).
     - ``planes``: the client picks a plan, which sets price, cycle and term;
       otherwise the term is chosen (``duracion_por_defecto``) and each line
       gets its cycle and, without a list price, the agreed price.
     - ``lineas``: the contract's services in print order, each
-      ``{servicio, inmueble, requisitos, inmueble_exclusivo}``: the property
-      role it is located at (``sucursal`` or ``bodega``), the profile that
-      property must meet (inmuebles.services.REQUISITOS) and whether one
-      client at a time may hold it.
-    - ``canal``: ``portal`` or ``backoffice``, where a case is started.
+      ``{servicio, inmueble, requisitos, inmueble_exclusivo,
+      incluido_en_plan}``: the property role it is located at (``sucursal``
+      or ``bodega``), the profile that property must meet
+      (inmuebles.services.REQUISITOS), whether one client at a time may hold
+      it, and whether the plan of another line pays for it.
+    - ``canales``: where a case is started, ``portal`` and/or ``backoffice``.
     - ``tipos_cliente``: ``empresa`` and/or ``persona``.
 
     docs/variation-points.md compares the two seeded types.

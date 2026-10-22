@@ -124,6 +124,12 @@ class SolicitudBackofficeSerializer(EdicionBackofficeSerializer):
     cliente = serializers.IntegerField()
 
 
+class SolicitudPortalSerializer(EdicionBackofficeSerializer):
+    """A request a client files in the portal for a type sold by plan (PLT-02)."""
+
+    tipo = serializers.SlugField()
+
+
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
@@ -214,6 +220,19 @@ class FormularioBackofficeSerializer(serializers.Serializer):
     inmuebles = serializers.DictField(child=InmuebleSerializer(many=True))
     lineas = LineaFormularioSerializer(many=True)
     ciclos_pago = CicloSerializer(many=True)
+    datos = serializers.JSONField(allow_null=True)
+
+
+class FormularioPortalSerializer(serializers.Serializer):
+    """What a portal request form offers; the reason is plain, for the client."""
+
+    nombre = serializers.CharField()
+    disponible = serializers.BooleanField()
+    motivo_no_disponible = serializers.CharField()
+    fecha_min = serializers.DateField()
+    fecha_max = serializers.DateField()
+    planes = PlanSerializer(many=True)
+    inmuebles = serializers.DictField(child=InmuebleSerializer(many=True))
     datos = serializers.JSONField(allow_null=True)
 
 

@@ -10,6 +10,7 @@ import pytest
 
 from crm_easyoffice.clientes.models import Empresa
 from crm_easyoffice.clientes.tests.factories import PersonaFactory
+from crm_easyoffice.documentos import formato
 from crm_easyoffice.documentos.conversion.plt02 import convertir
 from crm_easyoffice.documentos.semillas import ORIGEN_PLT02
 from crm_easyoffice.documentos.semillas import PLANTILLA_PLT02
@@ -152,7 +153,19 @@ def test_one_row_per_service_and_no_leftovers(caso):
     assert not re.search(r"<w:(ins|del)[ >]", v.documento(docx))
 
 
-def test_a_six_month_term_prints_everywhere(
+@pytest.mark.parametrize(
+    ("plan", "letras", "cifras", "ciclo"),
+    [
+        ("anual", "DOCE (12) MESES", "(12 MESES)", "ANUAL"),
+        ("semestral", "SEIS (6) MESES", "(6 MESES)", "SEMESTRAL"),
+        ("trimestral", "TRES (3) MESES", "(3 MESES)", "TRIMESTRAL"),
+    ],
+)
+def test_the_plan_term_prints_everywhere(  # noqa: PLR0913, PLR0917 - parametrized
+    plan,
+    letras,
+    cifras,
+    ciclo,
     inmuebles,
     django_capture_on_commit_callbacks,
 ):
@@ -161,12 +174,22 @@ def test_a_six_month_term_prints_everywhere(
         sucursal,
         bodega,
         ejecutar=django_capture_on_commit_callbacks,
-        duracion_meses=6,
+        plan=plan,
     )
-    texto = v.texto(docx_de(tramite.documentos.get()))
+    documento = tramite.documentos.get()
+    texto = v.texto(docx_de(documento))
 
-    assert "AUTORIZAR POR SEIS (6) MESES" in texto
-    assert "IGUAL PERÍODO (6 MESES)" in texto
+    assert f"AUTORIZAR POR {letras} A LA EMPRESA" in texto
+    assert f"IGUAL PERÍODO {cifras}, SALVO" in texto
+    vence = tramite.contrato.fecha_vencimiento
+    assert f"VENCE EL DÍA {formato.fecha_larga(vence)}" in texto
+    # The plan pays both lines: the domicile prints as included, at 0.
+    servicios = documento.datos_snapshot["valores"]["servicios"]
+    assert [(s["nombre"], s["precio"], s["ciclo"]) for s in servicios] == [
+        ("DOMICILIO TRIBUTARIO", "0", ciclo),
+        ("BODEGA", "59.990", ciclo),
+    ]
+    assert "$ 0" in texto
 
 
 def test_hashes_signers_and_frozen_snapshot(caso):
