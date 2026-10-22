@@ -502,6 +502,46 @@ def ocupantes(inmueble: Oficina, fecha: date) -> list[Cliente]:
     return list(por_id.values())
 
 
+def inmuebles_ocupados(
+    inmueble_ids: Sequence[int],
+    desde: date,
+    hasta: date,
+    *,
+    excluir_contrato: int | None = None,
+) -> set[int]:
+    """Which of these properties a contract holds during ``desde`` … ``hasta``.
+
+    For a property only one client may use at a time. A draft or an in-force
+    contract holds it from its start to its expiry, or open-ended when it
+    renews automatically, unless it was terminated earlier. One query.
+
+    ASSUMPTION: pending validation with Easy Office. A draft (a request not
+    yet signed) already reserves an exclusive property.
+    """
+    contratos = Contrato.objects.filter(
+        estado__in=[Contrato.Estado.BORRADOR, Contrato.Estado.VIGENTE],
+        fecha_inicio__lte=hasta,
+    ).filter(
+        Q(renovacion_automatica=True) | Q(fecha_vencimiento__gte=desde),
+        Q(terminado_en__isnull=True) | Q(terminado_en__gte=desde),
+    )
+    if excluir_contrato is not None:
+        contratos = contratos.exclude(pk=excluir_contrato)
+    return set(
+        ServicioContratado.objects.filter(
+            inmueble_id__in=inmueble_ids,
+            contrato__in=contratos,
+        ).values_list("inmueble_id", flat=True),
+    )
+
+
+def duraciones_activas() -> list[int]:
+    """The terms a contract may have, in months (Easy Office's form)."""
+    return list(
+        DuracionContrato.objects.filter(activa=True).values_list("meses", flat=True),
+    )
+
+
 def opciones_contrato() -> dict[str, Any]:
     """What the contract form offers, gathered from each app's services."""
     return {
@@ -517,12 +557,7 @@ def opciones_contrato() -> dict[str, Any]:
             {"id": cuenta.pk, "texto_contrato": cuenta.texto_contrato}
             for cuenta in cuentas_pago_activas()
         ],
-        "duraciones": list(
-            DuracionContrato.objects.filter(activa=True).values_list(
-                "meses",
-                flat=True,
-            ),
-        ),
+        "duraciones": duraciones_activas(),
         "ciclos_pago": [
             {"codigo": ciclo.codigo, "nombre": ciclo.nombre}
             for ciclo in ciclos_pago_activos()
