@@ -14,6 +14,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from crm_easyoffice.contratos.models import Contrato
+from crm_easyoffice.core.models import RegistroAuditoria
 from crm_easyoffice.documentos.models import Documento
 from crm_easyoffice.integrations.payment.base import PaymentResult
 from crm_easyoffice.integrations.payment.base import PaymentStatus
@@ -279,3 +280,114 @@ class TestSubirFirmado:
         )
 
         assert respuesta.status_code == HTTPStatus.FORBIDDEN
+
+
+class TestAuditoria:
+    def test_each_download_is_audited_with_its_channel(self, caso):
+        cuenta, tramite, documento = caso
+
+        portal(cuenta).get(
+            url_archivo("portal:tramite-documento-archivo", tramite, documento, "pdf"),
+        )
+        staff(roles.EJECUTIVO).get(
+            url_archivo(
+                "documentos:tramite-documento-archivo",
+                tramite,
+                documento,
+                "docx",
+            ),
+        )
+
+        descargas = RegistroAuditoria.objects.filter(
+            accion=RegistroAuditoria.Accion.DESCARGA_DOCUMENTO,
+            entidad="documentos.documento",
+            registro_id=documento.pk,
+        ).order_by("pk")
+        assert [(d.origen, d.valor_nuevo) for d in descargas] == [
+            ("portal", {"archivo": "pdf"}),
+            ("api", {"archivo": "docx"}),
+        ]
+        assert descargas[0].usuario == cuenta.user
+
+    def test_a_missing_file_is_not_audited(self, caso):
+        cuenta, tramite, documento = caso
+
+        portal(cuenta).get(
+            url_archivo(
+                "portal:tramite-documento-archivo",
+                tramite,
+                documento,
+                "firmado",
+            ),
+        )
+
+        assert not RegistroAuditoria.objects.filter(
+            accion=RegistroAuditoria.Accion.DESCARGA_DOCUMENTO,
+        ).exists()
+
+    def test_the_generation_and_the_signed_upload_are_in_the_log(
+        self,
+        caso,
+        django_capture_on_commit_callbacks,
+    ):
+        _, tramite, documento = caso
+        tramite = a_firma(tramite, django_capture_on_commit_callbacks)
+
+        assert subir(tramite, documento).status_code == HTTPStatus.OK
+
+        filas = RegistroAuditoria.objects.filter(
+            entidad="documentos.documento",
+            registro_id=documento.pk,
+        ).order_by("pk")
+        creacion, firma = filas.first(), filas.last()
+        assert creacion.accion == RegistroAuditoria.Accion.CREAR
+        assert creacion.origen == "sistema"
+        assert "datos_snapshot" not in creacion.valor_nuevo
+        assert creacion.valor_nuevo["sha256_pdf"] == documento.sha256_pdf
+        assert firma.usuario is not None
+        assert firma.origen == "api"
+        assert set(firma.valor_nuevo) >= {
+            "archivo_firmado",
+            "sha256_firmado",
+            "firmado_en",
+        }
+
+    def test_a_cases_history_includes_its_contract_sale_and_documents(
+        self,
+        caso,
+        django_capture_on_commit_callbacks,
+    ):
+        _, tramite, _ = caso
+        tramite = a_firma(tramite, django_capture_on_commit_callbacks)
+        administrador = staff(roles.ADMINISTRADOR)
+
+        respuesta = administrador.get(
+            reverse("auditoria:historial"),
+            {"entidad": "tramites.tramite", "registro_id": tramite.pk, "page": 1},
+        )
+
+        assert respuesta.status_code == HTTPStatus.OK
+        todas = {f["entidad"] for f in respuesta.json()["results"]}
+        pagina = 2
+        while respuesta.json()["next"]:
+            respuesta = administrador.get(
+                reverse("auditoria:historial"),
+                {
+                    "entidad": "tramites.tramite",
+                    "registro_id": tramite.pk,
+                    "page": pagina,
+                },
+            )
+            todas |= {f["entidad"] for f in respuesta.json()["results"]}
+            pagina += 1
+        assert {
+            "tramites.tramite",
+            "contratos.contrato",
+            "contratos.serviciocontratado",
+            "documentos.documento",
+            "documentos.firmante",
+            "ventas.venta",
+            "ventas.itemventa",
+            "ventas.ordenpago",
+        } <= todas
+        assert "clientes.cliente" not in todas
