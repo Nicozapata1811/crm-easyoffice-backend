@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+python manage.py migrate --noinput
+python manage.py generar_pki --si-falta
+python manage.py crear_cliente_api --desde-env
+python manage.py seed_identidades_demo
+exec python manage.py runserver 0.0.0.0:8100

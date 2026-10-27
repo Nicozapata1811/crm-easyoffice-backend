@@ -276,3 +276,11 @@ private_media/
 .ipython/
 .env
 .envs/*
+
+### The test PSC (firma-sandbox): generated keys, certificates and data
+firma_sandbox/.pki/
+firma_sandbox/data/
+firma_sandbox/**/*.pem
+firma_sandbox/**/*.key
+firma_sandbox/**/*.crt
+firma_sandbox/**/*.p12

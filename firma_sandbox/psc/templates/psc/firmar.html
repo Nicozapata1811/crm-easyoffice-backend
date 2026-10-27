@@ -1,0 +1,106 @@
+{% extends "psc/base.html" %}
+
+{% block title %}
+  Firmar {{ solicitud.nombre_documento }} – Firma electrónica
+{% endblock title %}
+{% block content %}
+  <div class="tarjeta">
+    <h1>{{ solicitud.nombre_documento }}</h1>
+    <p>
+      Hola, {{ firmante.nombre }}. Firmas en el lugar {{ firmante.orden }}.
+    </p>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    {% if mensaje %}<p class="ok" role="status">{{ mensaje }}</p>{% endif %}
+  </div>
+  <div class="tarjeta">
+    <h2>Documento</h2>
+    <object class="pdf"
+            data="{% url 'paginas:documento' token %}"
+            type="application/pdf">
+      <p>
+        <a href="{% url 'paginas:documento' token %}">Abrir el PDF</a>
+      </p>
+    </object>
+    <p>
+      <a href="{% url 'paginas:documento' token %}"
+         target="_blank"
+         rel="noopener">Abrir el PDF en otra pestaña</a>
+    </p>
+  </div>
+  {% if paso == "identidad" %}
+    <form class="tarjeta" method="post">
+      {% csrf_token %}
+      <h2>1. Verifica tu identidad</h2>
+      <input type="hidden" name="accion" value="identidad" />
+      <label for="rut">RUT</label>
+      <input id="rut"
+             name="rut"
+             type="text"
+             inputmode="text"
+             autocomplete="off"
+             required />
+      <label for="numero_serie">Número de serie de tu cédula</label>
+      <input id="numero_serie"
+             name="numero_serie"
+             type="text"
+             autocomplete="off"
+             required />
+      <button type="submit">Verificar</button>
+    </form>
+  {% elif paso == "codigo" %}
+    <form class="tarjeta" method="post">
+      {% csrf_token %}
+      <h2>2. Recibe tu código</h2>
+      <p>Te enviaremos un código de un solo uso a tu correo.</p>
+      <input type="hidden" name="accion" value="codigo" />
+      <button type="submit">Enviar código</button>
+    </form>
+    <form class="tarjeta" method="post">
+      {% csrf_token %}
+      <h2>3. Firma</h2>
+      <input type="hidden" name="accion" value="firmar" />
+      <label for="codigo">Código recibido</label>
+      <input id="codigo"
+             name="codigo"
+             type="text"
+             inputmode="numeric"
+             autocomplete="one-time-code"
+             required />
+      <label>
+        <input type="checkbox" name="consiento" value="si" required />
+        Leí el documento y consiento firmarlo.
+      </label>
+      <button type="submit">Firmar</button>
+    </form>
+  {% elif paso == "espera" %}
+    <div class="tarjeta">
+      <p>Todavía no es tu turno. Te avisaremos por correo cuando firme quien te antecede.</p>
+    </div>
+  {% elif paso == "bloqueado" %}
+    <div class="tarjeta">
+      <p class="error">Superaste los intentos de verificación. Pide un nuevo enlace a quien te envió el documento.</p>
+    </div>
+  {% elif paso == "firmado" %}
+    <div class="tarjeta">
+      <p class="ok">Firmaste este documento. Código de verificación: {{ firmante.codigo_verificacion }}.</p>
+    </div>
+  {% elif paso == "rechazado" %}
+    <div class="tarjeta">
+      <p>Rechazaste firmar este documento.</p>
+    </div>
+  {% else %}
+    <div class="tarjeta">
+      <p>Esta solicitud ya no está abierta ({{ solicitud.get_estado_display }}).</p>
+    </div>
+  {% endif %}
+  {% if paso == "identidad" or paso == "codigo" %}
+    <form class="tarjeta" method="post">
+      {% csrf_token %}
+      <h2>¿No quieres firmar?</h2>
+      <input type="hidden" name="accion" value="rechazar" />
+      <label for="motivo">Motivo</label>
+      <textarea id="motivo" name="motivo" rows="3" required></textarea>
+      <button class="secundario" type="submit">Rechazar la firma</button>
+    </form>
+  {% endif %}
+{% endblock content %}
