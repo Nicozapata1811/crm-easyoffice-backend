@@ -114,7 +114,7 @@ services:
   # The test PSC (PSC de pruebas): a fictitious advanced-signature provider for
   # development, with its own test CA. Its signatures have no legal validity
   # and it is not in docker-compose.production.yml. Start it with
-  # `docker compose --profile firma up`; it needs .envs/.local/.firma.
+  # `docker compose --profile firma up`; it needs .envs/.local/.firma (without it, it refuses to start).
   # The port serves only the signing pages and the PKI downloads to the
   # browser; its API answers only on the compose network (firma-sandbox:8100).
   firma-sandbox: &firma-sandbox
@@ -134,7 +134,7 @@ services:
       FIRMA_SANDBOX_PKI_DIR: /app/.pki
     env_file:
       - path: ./.envs/.local/.firma
-        required: true
+        required: false
     ports:
       - '127.0.0.1:8100:8100'
     healthcheck:

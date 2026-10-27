@@ -6,9 +6,7 @@
 {% block content %}
   <div class="tarjeta">
     <h1>{{ solicitud.nombre_documento }}</h1>
-    <p>
-      Hola, {{ firmante.nombre }}. Firmas en el lugar {{ firmante.orden }}.
-    </p>
+    <p>Hola, {{ firmante.nombre }}. Firmas en el lugar {{ firmante.orden }}.</p>
     {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
     {% if mensaje %}<p class="ok" role="status">{{ mensaje }}</p>{% endif %}
   </div>
