@@ -64,6 +64,7 @@ from .models import MotivoPendiente
 from .models import TipoTramite
 from .models import Tramite
 from .signals import documento_requerido
+from .signals import firma_requerida
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -174,6 +175,10 @@ def _mover(
             detalle=detalle,
             usuario=usuario,
         )
+        if (estado, motivo) == (PENDIENTE, FIRMA):
+            transaction.on_commit(
+                lambda: firma_requerida.send(sender=Tramite, tramite=tramite),
+            )
     return tramite
 
 
@@ -220,6 +225,31 @@ def _requiere(tramite: Tramite, paso: str) -> bool:
     if isinstance(valor, list):
         return tramite.canal in valor
     return bool(valor)
+
+
+ASISTIDA = "asistida"
+AVANZADA = "avanzada"
+
+
+def nivel_firma(tipo: TipoTramite) -> str:
+    """How the type's documents are signed (``firma.nivel``).
+
+    ``asistida``: an executive uploads the signed PDF. ``avanzada``: the
+    document goes to the advanced-signature provider. Types configured
+    before IN-01 are ``asistida``.
+    """
+    return tipo.configuracion.get("firma", {}).get("nivel", ASISTIDA)
+
+
+def roles_firmantes(tipo: TipoTramite) -> list[str] | None:
+    """Who signs, in order (``firma.firmantes``), or None to keep the template's.
+
+    ASSUMPTION: pending validation with Easy Office. The demo order is the
+    client's representative, Easy Office's representative, then the
+    property's authoriser (RN-39 leaves the order open).
+    """
+    roles = tipo.configuracion.get("firma", {}).get("firmantes")
+    return list(roles) if roles else None
 
 
 def _con_planes(tipo: TipoTramite) -> bool:
@@ -693,6 +723,25 @@ def documento_listo(tramite: Tramite) -> Tramite:
 def documento_fallido(tramite: Tramite, detalle: str) -> Tramite:
     """The document could not be generated; the executive sees why."""
     return _mover(tramite, PENDIENTE, FALTA_INFORMACION, detalle=detalle)
+
+
+def firma_no_completada(
+    tramite: Tramite,
+    detalle: str,
+    usuario: User | None = None,
+) -> Tramite:
+    """A signer declined, the request expired or was cancelled: back to the executive.
+
+    ASSUMPTION: pending validation with Easy Office. The executive corrects
+    what is needed and regenerates the document, which sends it again.
+    """
+    return _mover(
+        tramite,
+        PENDIENTE,
+        FALTA_INFORMACION,
+        detalle=detalle,
+        usuario=usuario,
+    )
 
 
 CONFIRMADO_POR_EJECUTIVO = "El ejecutivo registró la confirmación del cliente."

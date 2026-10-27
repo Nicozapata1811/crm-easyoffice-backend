@@ -142,6 +142,10 @@ lint.ignore = [
   # Deactivated because it can make the code slow:
   # https://github.com/astral-sh/ruff/issues/7871
 ]
+# The CRM and the test PSC (firma_sandbox/) share no code: they talk over HTTP.
+lint.flake8-tidy-imports.banned-api.firma_sandbox.msg = "The CRM talks to the test PSC only over HTTP."
+lint.flake8-tidy-imports.banned-api.psc.msg = "The CRM talks to the test PSC only over HTTP."
+lint.flake8-tidy-imports.banned-api.sandbox.msg = "The CRM talks to the test PSC only over HTTP."
 lint.isort.force-single-line = true
 
 # ==== pyproject-fmt ====
@@ -174,12 +178,19 @@ addopts = [
   "--ds=config.settings.test",
   "--reuse-db",
   "--import-mode=importlib",
+  "-m",
+  "not e2e",
+]
+markers = [
+  "e2e: end to end against the running compose stack (just e2e-firma)",
 ]
 minversion = "9.0"
 python_files = [
   "tests.py",
   "test_*.py",
 ]
+# The test PSC (firma_sandbox/) has its own settings and runs its own tests.
+testpaths = [ "crm_easyoffice", "tests" ]
 
 [tool.coverage]
 # ==== Coverage ====

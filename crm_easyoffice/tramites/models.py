@@ -37,6 +37,11 @@ class TipoTramite(TimestampedModel):
       it, and whether the plan of another line pays for it.
     - ``canales``: where a case is started, ``portal`` and/or ``backoffice``.
     - ``tipos_cliente``: ``empresa`` and/or ``persona``.
+    - ``firma``: ``{nivel, firmantes}``. ``nivel`` is ``asistida`` (an
+      executive uploads the signed PDF; the default) or ``avanzada`` (the
+      advanced-signature provider). ``firmantes`` optionally lists the signer
+      roles in order (``cliente_representante``, ``representante_emisor``,
+      ``autorizante``).
 
     docs/variation-points.md compares the two seeded types.
     """

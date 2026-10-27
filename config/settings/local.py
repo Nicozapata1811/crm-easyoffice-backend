@@ -18,6 +18,8 @@ ALLOWED_HOSTS = [
     "0.0.0.0",  # noqa: S104
     "127.0.0.1",
     ".trycloudflare.com",
+    # The test PSC posts its webhooks to the compose name.
+    "django",
     *env.list("DJANGO_EXTRA_ALLOWED_HOSTS", default=[]),
 ]
 # The Vite dev server proxies /api with Host rewritten to :8000, but the
@@ -80,5 +82,8 @@ INSTALLED_APPS += ["django_extensions"]
 
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-eager-propagates
 CELERY_TASK_EAGER_PROPAGATES = True
+
+# The test PSC (firma-sandbox) is allowed here, and only here and in tests.
+SIGNATURE_ALLOW_SANDBOX = True
 # Your stuff...
 # ------------------------------------------------------------------------------

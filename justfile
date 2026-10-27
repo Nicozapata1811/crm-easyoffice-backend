@@ -40,3 +40,15 @@ manage +args:
 # pytest: Run tests with pytest.
 pytest *args:
     @docker compose run --rm django pytest {{args}}
+
+# firma-pytest: Run the test PSC's own tests (firma_sandbox/).
+firma-pytest *args:
+    @docker compose --profile firma run --rm --no-deps -e FIRMA_SANDBOX_ENV=test -e FIRMA_SANDBOX_DATA_DIR=/tmp/data -e FIRMA_SANDBOX_PKI_DIR=/tmp/pki firma-sandbox pytest {{args}}
+
+# e2e-firma: Sign a warehouse case end to end through the test PSC (no legal validity).
+e2e-firma:
+    @docker compose --profile firma up -d --wait firma-sandbox
+    @docker compose --profile firma up -d
+    @docker compose run --rm django python manage.py migrate
+    @docker compose run --rm django python manage.py seed_demo_firma_avanzada
+    @docker compose run --rm django pytest -o addopts="" -p no:django -m e2e e2e

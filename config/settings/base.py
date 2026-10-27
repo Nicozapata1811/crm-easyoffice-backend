@@ -333,6 +333,14 @@ CELERY_TASK_TIME_LIMIT = 5 * 60
 CELERY_TASK_SOFT_TIME_LIMIT = 60
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#beat-scheduler
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+# The database scheduler copies these into its tables on start.
+CELERY_BEAT_SCHEDULE = {
+    # The fallback when a signature webhook is lost (IN-01).
+    "sincronizar-solicitudes-firma": {
+        "task": "crm_easyoffice.documentos.tasks.sincronizar_solicitudes_abiertas",
+        "schedule": 15 * 60,
+    },
+}
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events
 CELERY_WORKER_SEND_TASK_EVENTS = True
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#std-setting-task_send_sent_event
@@ -444,3 +452,24 @@ CONTRATO_FOLIO_ANCHO = env.int("CONTRATO_FOLIO_ANCHO", default=4)
 PDF_CONVERTER = env("PDF_CONVERTER", default="gotenberg")
 GOTENBERG_URL = env("GOTENBERG_URL", default="http://gotenberg:3000")
 PDF_CONVERSION_TIMEOUT_SECONDS = env.int("PDF_CONVERSION_TIMEOUT_SECONDS", default=60)
+
+# Advanced signature (IN-01)
+# ------------------------------------------------------------------------------
+# "simulated" (tests) or "http": a provider reached over HTTP. Locally that is
+# the test PSC (firma-sandbox), whose signatures have no legal validity.
+SIGNATURE_PROVIDER = env("SIGNATURE_PROVIDER", default="simulated")
+SIGNATURE_API_BASE_URL = env("SIGNATURE_API_BASE_URL", default="")
+SIGNATURE_API_KEY = env("SIGNATURE_API_KEY", default="")
+SIGNATURE_WEBHOOK_SECRET = env("SIGNATURE_WEBHOOK_SECRET", default="")
+# Where the provider posts webhooks; the compose name, locally.
+SIGNATURE_WEBHOOK_BASE_URL = env(
+    "SIGNATURE_WEBHOOK_BASE_URL",
+    default="http://django:8000",
+)
+# A webhook older or newer than this is refused (replays).
+SIGNATURE_WEBHOOK_TOLERANCE_SECONDS = 300
+# ASSUMPTION: pending validation with Easy Office. How long a signing link
+# lasts; it never outlives the contract's start date.
+SIGNATURE_REQUEST_TTL_DAYS = env.int("SIGNATURE_REQUEST_TTL_DAYS", default=7)
+# Whether the test PSC may be used. Only local and test settings allow it.
+SIGNATURE_ALLOW_SANDBOX = False

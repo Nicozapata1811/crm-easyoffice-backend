@@ -8,10 +8,16 @@ class DocumentosConfig(AppConfig):
 
     def ready(self) -> None:
         from crm_easyoffice.tramites.signals import documento_requerido  # noqa: PLC0415
+        from crm_easyoffice.tramites.signals import firma_requerida  # noqa: PLC0415
 
         from .receivers import al_requerir_documento  # noqa: PLC0415
+        from .receivers import al_requerir_firma  # noqa: PLC0415
 
         documento_requerido.connect(
             al_requerir_documento,
             dispatch_uid="documentos.al_requerir_documento",
+        )
+        firma_requerida.connect(
+            al_requerir_firma,
+            dispatch_uid="documentos.al_requerir_firma",
         )
