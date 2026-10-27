@@ -46,7 +46,7 @@ Reemplaza cada `CHANGEME` de ese archivo por un valor propio, por ejemplo con
 `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Luego:
 
 ```bash
-docker compose -f docker-compose.local.yml --profile firma up -d
+docker compose -f docker-compose.local.yml up -d
 ```
 
 Al iniciar, el servicio:
@@ -62,7 +62,7 @@ Al iniciar, el servicio:
 | API | `http://firma-sandbox:8100/api/v1/`, solo dentro de la red de compose |
 | Correos (enlaces y códigos) | Mailpit, `http://localhost:8025` |
 
-Comandos (`docker compose -f docker-compose.local.yml --profile firma run --rm firma-sandbox python manage.py …`):
+Comandos (`docker compose -f docker-compose.local.yml run --rm firma-sandbox python manage.py …`):
 
 | Comando | Para qué |
 |---|---|

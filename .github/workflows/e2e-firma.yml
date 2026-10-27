@@ -8,7 +8,6 @@ env:
   DOCKER_BUILDKIT: 1
   COMPOSE_DOCKER_CLI_BUILD: 1
   COMPOSE_FILE: docker-compose.local.yml
-  COMPOSE_PROFILES: firma
 
 on:
   workflow_dispatch:

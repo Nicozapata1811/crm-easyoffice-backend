@@ -631,7 +631,7 @@ Para firmar con el PSC de pruebas:
 
 ```bash
 cp .envs.example/.local/.firma .envs/.local/.firma   # reemplaza cada CHANGEME
-docker compose -f docker-compose.local.yml --profile firma up -d
+docker compose -f docker-compose.local.yml up -d
 docker compose -f docker-compose.local.yml run --rm django python manage.py seed_demo_firma_avanzada
 ```
 

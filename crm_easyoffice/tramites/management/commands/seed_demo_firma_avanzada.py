@@ -1,7 +1,7 @@
 """Switch the case types to the advanced signature, for a local demo (IN-01).
 
 For local development and demos only, with the test PSC running
-(``docker compose --profile firma up``). Its signatures have no legal
+(started with ``docker compose up``). Its signatures have no legal
 validity. It runs seed_demo_bodega first, so the branches, the warehouses
 and Easy Office's representative exist; their fictitious RUTs are in the test
 PSC's fictitious registry (firma_sandbox/fixtures/identidades_demo.json).

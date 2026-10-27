@@ -159,9 +159,9 @@ class PaymentProvider(ABC): ...
     copy with another mapping, URL and key. Tests use the simulated provider.
   - **The test PSC (`firma_sandbox/`).** A separate Django project, standing
     in for an external provider; not a CRM microservice. It has its own
-    `pyproject.toml`/`uv.lock`, SQLite, compose services under the `firma`
-    profile (local only) and tests (`just firma-pytest`), and shares no tables
-    or imports with the CRM (ruff `banned-api` both ways, plus a test).
+    `pyproject.toml`/`uv.lock`, SQLite, compose services (local only, started
+    with the rest of the stack) and tests (`just firma-pytest`), and shares no
+    tables or imports with the CRM (ruff `banned-api` both ways, plus a test).
     - **What it does:** a test CA, TSA, CRL and OCSP; an identity check
       against a fictitious registry; single-use certificates; OTP by email;
       PAdES B-LT per signer, B-LTA at the end; HMAC webhooks with retries.
