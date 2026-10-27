@@ -1,0 +1,57 @@
+[
+  {
+    "rut": "90000001-4",
+    "numero_serie": "A90000001",
+    "nombre": "Rodrigo Andrés Ejemplo Ficticio"
+  },
+  {
+    "rut": "90000101-0",
+    "numero_serie": "A90000101",
+    "nombre": "María José Propietaria Ejemplo 1"
+  },
+  {
+    "rut": "90000102-9",
+    "numero_serie": "A90000102",
+    "nombre": "María José Propietaria Ejemplo 2"
+  },
+  {
+    "rut": "90000103-7",
+    "numero_serie": "A90000103",
+    "nombre": "María José Propietaria Ejemplo 3"
+  },
+  {
+    "rut": "90000201-7",
+    "numero_serie": "A90000201",
+    "nombre": "Carolina Andrea Bodeguera Ejemplo"
+  },
+  {
+    "rut": "90000202-5",
+    "numero_serie": "A90000202",
+    "nombre": "Pedro Pablo Almacén Ficticio"
+  },
+  {
+    "rut": "90000301-3",
+    "numero_serie": "A90000301",
+    "nombre": "Representante Demo 1"
+  },
+  {
+    "rut": "90000302-1",
+    "numero_serie": "A90000302",
+    "nombre": "Representante Demo 2"
+  },
+  {
+    "rut": "90000303-K",
+    "numero_serie": "A90000303",
+    "nombre": "Representante Demo 3"
+  },
+  {
+    "rut": "90000304-8",
+    "numero_serie": "A90000304",
+    "nombre": "Representante Demo 4"
+  },
+  {
+    "rut": "90000305-6",
+    "numero_serie": "A90000305",
+    "nombre": "Representante Demo 5"
+  }
+]

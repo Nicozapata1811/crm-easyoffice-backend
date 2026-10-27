@@ -91,3 +91,23 @@ jobs:
 
       - name: Tear down the Stack
         run: docker compose -f docker-compose.local.yml down
+
+  # The test PSC (firma_sandbox/) has its own settings, lock and tests.
+  firma-sandbox:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Run the test PSC's tests
+        working-directory: firma_sandbox
+        env:
+          FIRMA_SANDBOX_ENABLED: 'true'
+          FIRMA_SANDBOX_ENV: test
+          FIRMA_SANDBOX_DATA_DIR: ${{ runner.temp }}/firma-data
+          FIRMA_SANDBOX_PKI_DIR: ${{ runner.temp }}/firma-pki
+        run: uv run --locked --python 3.14 pytest

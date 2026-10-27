@@ -148,9 +148,48 @@ class PaymentProvider(ABC): ...
 ```
 
 - **Signature.** Provider is `tufirma.digital`. Credentials are **not available
-  yet** and are being requested by the company. Build against a simulated
-  implementation that satisfies the same contract; the real one drops in via an
-  environment variable.
+  yet** (TA-07) and are being requested by the company.
+  - **Level per case type.** `TipoTramite.configuracion["firma"]["nivel"]` is
+    `asistida` (default, tramites 0006: the executive uploads the signed PDF)
+    or `avanzada`. `firma.firmantes` optionally orders the roles, and may add
+    `representante_emisor`, Easy Office's representative.
+  - **Provider.** `SIGNATURE_PROVIDER=http|simulated` (`integrations/signature/registry.py`).
+    `http.py` (`HttpSignatureProvider`) talks to any provider over HTTP;
+    every provider-specific name sits in its mapping section, so tufirma is a
+    copy with another mapping, URL and key. Tests use the simulated provider.
+  - **The test PSC (`firma_sandbox/`).** A separate Django project, standing
+    in for an external provider; not a CRM microservice. It has its own
+    `pyproject.toml`/`uv.lock`, SQLite, compose services (local only, started
+    with the rest of the stack) and tests (`just firma-pytest`), and shares no
+    tables or imports with the CRM (ruff `banned-api` both ways, plus a test).
+    - **What it does:** a test CA, TSA, CRL and OCSP; an identity check
+      against a fictitious registry; single-use certificates; OTP by email;
+      PAdES B-LT per signer, B-LTA at the end; HMAC webhooks with retries.
+    - **No legal validity**, and never in production:
+      - the service refuses to start outside development;
+      - `production.py` refuses its URL (`exigir_proveedor_real`);
+      - `SIGNATURE_ALLOW_SANDBOX` is true only in local and test settings.
+    - **Docs.** Its API is documented as a provider's in `firma_sandbox/README.md`.
+  - **Flow** (`documentos/firma.py`):
+    1. Entering (pendiente, firma) sends `tramites.signals.firma_requerida`.
+       For `avanzada`, `enviar_a_firma` (Celery) sends the PDF and the
+       `Firmante` rows in order, storing a `SolicitudFirma`.
+    2. Webhooks arrive at `/api/firma/webhooks/<proveedor>/`. They are
+       verified with HMAC and a 300 s window, deduplicated by event id in the
+       append-only `EventoFirma`, then `procesar_evento_firma` reads the
+       provider's current state.
+    3. `aplicar_estado` marks each signer. On completion it checks RF-39
+       (reported original hash, the original as an exact prefix, the
+       downloaded hash), then `guardar_firmado`, the same end state as the
+       upload.
+    4. A decline, expiry or cancellation moves the case to falta información.
+    5. `sincronizar_solicitudes_abiertas` (beat, 15 min) and the backoffice
+       documents GET are the fallback when a webhook is lost.
+  - **Backoffice actions:** `…/firma/reenviar|cancelar|reintentar/`
+    (`documentos.gestionar_firma`). The upload answers 409 `firma_avanzada`
+    for `avanzada` types.
+  - **Audit.** HU-30 is not merged: `TODO(RF-15)` marks the request sent, the
+    webhook received and the signed PDF stored.
 - **Payment.** The company has **not decided** the provider yet. Options
   mentioned were Transbank and Mercado Pago. Two adapters exist, both an
   assumption until Easy Office decides: `integrations/payment/klap.py` (Klap
@@ -371,7 +410,7 @@ Tests use the simulated converter.
     (a case and its dated history), `ventas.tests.factories.venta_pagada`
     and `documentos.tests.factories.documento_generado` (a row on the seeded
     PLT-01 v1, no file rendered). A query-count test keeps the dashboard at
-    a fixed number of queries. The whole suite has 637 tests.
+    a fixed number of queries. The whole suite has 684 tests (firma_sandbox/ has its own 62).
 
 - **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
   `precio_confirmado=False`), `CicloPago` (único … anual, HU-23), `Venta`,
@@ -593,7 +632,9 @@ Done:
   signature upload (HU-19..21, HU-24, HU-26..29, HU-61);
 - the warehouse contract (PLT-02) as the second case, started in the
   backoffice, with the variation points for the engine in
-  `docs/variation-points.md`.
+  `docs/variation-points.md`;
+- the advanced signature through an HTTP provider, end to end against the
+  test PSC (`firma_sandbox/`, IN-01), `asistida` by default.
 
 Still to build: user management (HU-02) and the audit log (HU-30, RF-15). Until
 the audit log exists, client changes carry `TODO(RF-15)`.
@@ -609,7 +650,8 @@ the audit log exists, client changes carry `TODO(RF-15)`.
 - Exact case states and valid transitions
 - Roles beyond Administrador and Ejecutivo (a "supervisor" appears in HU-05
   and HU-41 but is not confirmed) and the session inactivity timeout
-- Signature provider API details and credentials
+- Signature provider (tufirma.digital) API details and credentials; who signs
+  through it and in what order; link and code durations
 - Payment provider (Klap is implemented as an assumption), prices, and the
   refund policy
 - Production hosting

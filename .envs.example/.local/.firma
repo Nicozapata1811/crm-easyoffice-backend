@@ -1,0 +1,23 @@
+# Local development only. The test PSC (firma-sandbox) and the CRM read this
+# file. Its signatures have no legal validity (Ley 19.799). Generate your own
+# values, for example with:
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Never reuse them anywhere else.
+
+# The CRM: which signature provider to use, and how to reach it
+# ------------------------------------------------------------------------------
+SIGNATURE_PROVIDER=http
+SIGNATURE_API_BASE_URL=http://firma-sandbox:8100/api/v1/
+SIGNATURE_API_KEY=CHANGEME
+SIGNATURE_WEBHOOK_SECRET=CHANGEME
+SIGNATURE_WEBHOOK_BASE_URL=http://django:8000
+
+# The test PSC
+# ------------------------------------------------------------------------------
+# It refuses to start without these two (development only).
+FIRMA_SANDBOX_ENABLED=true
+FIRMA_SANDBOX_ENV=local
+# Encrypts the test CA, TSA and signer keys at rest.
+FIRMA_SANDBOX_KEY_PASSPHRASE=CHANGEME
+# Where the browser opens the signing pages.
+FIRMA_SANDBOX_PUBLIC_URL=http://localhost:8100

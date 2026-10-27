@@ -172,6 +172,7 @@ class Documento(TimestampedModel):
         ordering = ["tramite", "-version"]
         permissions = [
             ("subir_documento_firmado", _("Can upload a signed document")),
+            ("gestionar_firma", _("Can resend, cancel or retry an advanced signature")),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -189,12 +190,22 @@ class Firmante(models.Model):
 
     ASSUMPTION: pending validation with Easy Office. The order of the
     signatures in the domicile contract is not confirmed (RN-39), and one
-    uploaded PDF is assumed to carry every signature.
+    uploaded PDF is assumed to carry every signature. With an advanced
+    signature through a provider, each signer's state comes from it.
     """
 
     class Rol(models.TextChoices):
         CLIENTE_REPRESENTANTE = "cliente_representante", _("representante del cliente")
+        REPRESENTANTE_EMISOR = (
+            "representante_emisor",
+            _("representante de Easy Office"),
+        )
         AUTORIZANTE = "autorizante", _("autorizante del domicilio")
+
+    class Estado(models.TextChoices):
+        PENDIENTE = "pendiente", _("pendiente")
+        FIRMADO = "firmado", _("firmado")
+        RECHAZADO = "rechazado", _("rechazado")
 
     documento = models.ForeignKey(
         Documento,
@@ -210,7 +221,20 @@ class Firmante(models.Model):
     )
     rol = models.CharField(_("rol"), max_length=30, choices=Rol.choices)
     orden = models.PositiveSmallIntegerField(_("orden"))
+    estado = models.CharField(
+        _("estado"),
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.PENDIENTE,
+    )
     firmado_en = models.DateTimeField(_("firmado en"), null=True, blank=True)
+    rechazado_en = models.DateTimeField(_("rechazado en"), null=True, blank=True)
+    motivo_rechazo = models.TextField(_("motivo del rechazo"), blank=True)
+    id_externo = models.CharField(
+        _("id en el proveedor de firma"),
+        max_length=100,
+        blank=True,
+    )
 
     class Meta:
         verbose_name = _("firmante")
@@ -219,3 +243,114 @@ class Firmante(models.Model):
 
     def __str__(self) -> str:
         return f"{self.persona} ({self.get_rol_display()})"
+
+
+class SolicitudFirma(TimestampedModel):
+    """A document sent to the advanced-signature provider (IN-01, RF-25).
+
+    One per attempt: a resend after an error or a regeneration is a new row,
+    so the history stays. ``id_externo`` is the provider's id, the key its
+    webhooks are reconciled against.
+    """
+
+    class Estado(models.TextChoices):
+        CREANDO = "creando", _("creando")
+        ENVIADA = "enviada", _("enviada")
+        COMPLETADA = "completada", _("completada")
+        RECHAZADA = "rechazada", _("rechazada")
+        EXPIRADA = "expirada", _("expirada")
+        CANCELADA = "cancelada", _("cancelada")
+        ERROR = "error", _("error")
+
+    ABIERTAS = (Estado.CREANDO, Estado.ENVIADA)
+
+    documento = models.ForeignKey(
+        Documento,
+        verbose_name=_("documento"),
+        on_delete=models.PROTECT,
+        related_name="solicitudes_firma",
+    )
+    proveedor = models.CharField(_("proveedor"), max_length=30)
+    id_externo = models.CharField(
+        _("id en el proveedor"),
+        max_length=100,
+        unique=True,
+        null=True,
+        blank=True,
+    )
+    estado = models.CharField(
+        _("estado"),
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.CREANDO,
+    )
+    ambiente_pruebas = models.BooleanField(
+        _("ambiente de pruebas"),
+        default=False,
+        help_text=_("The provider is a test one: no legal validity."),
+    )
+    detalle_error = models.TextField(_("detalle del error"), blank=True)
+    enviada_en = models.DateTimeField(_("enviada en"), null=True, blank=True)
+    expira_en = models.DateTimeField(_("expira en"), null=True, blank=True)
+    sincronizada_en = models.DateTimeField(_("sincronizada en"), null=True, blank=True)
+    terminada_en = models.DateTimeField(_("terminada en"), null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("solicitud de firma")
+        verbose_name_plural = _("solicitudes de firma")
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["documento"],
+                condition=models.Q(estado__in=["creando", "enviada"]),
+                name="solicitud_firma_una_abierta_por_documento",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.documento} · {self.get_estado_display()}"
+
+    @property
+    def abierta(self) -> bool:
+        return self.estado in self.ABIERTAS
+
+
+class EventoFirma(models.Model):
+    """A signature webhook as received. Append-only: never updated or deleted."""
+
+    class Resultado(models.TextChoices):
+        RECIBIDO = "recibido", _("recibido")
+        IGNORADO = "ignorado", _("ignorado")
+        FIRMA_INVALIDA = "firma_invalida", _("firma inválida")
+
+    solicitud = models.ForeignKey(
+        SolicitudFirma,
+        verbose_name=_("solicitud de firma"),
+        on_delete=models.PROTECT,
+        related_name="eventos",
+        null=True,
+        blank=True,
+    )
+    proveedor = models.CharField(_("proveedor"), max_length=30)
+    id_evento = models.CharField(_("id del evento"), max_length=100, blank=True)
+    tipo = models.CharField(_("tipo"), max_length=30, blank=True)
+    clave_dedup = models.CharField(
+        _("clave de deduplicación"),
+        max_length=64,
+        unique=True,
+    )
+    payload = models.JSONField(_("payload"))
+    resultado = models.CharField(
+        _("resultado"),
+        max_length=20,
+        choices=Resultado.choices,
+    )
+    recibido_en = models.DateTimeField(_("recibido en"), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("evento de firma")
+        verbose_name_plural = _("eventos de firma")
+        ordering = ["-recibido_en"]
+
+    def __str__(self) -> str:
+        return f"{self.proveedor} {self.tipo} · {self.recibido_en:%Y-%m-%d %H:%M}"

@@ -1,0 +1,7 @@
+# Build context of the test PSC: only its own code.
+*
+!firma_sandbox/
+!compose/local/firma_sandbox/
+firma_sandbox/.pki/
+firma_sandbox/data/
+**/__pycache__/
