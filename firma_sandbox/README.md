@@ -241,6 +241,26 @@ un sello.
 En el registro ficticio, el número de serie de cada persona demo es «A»
 seguido del número del RUT: por ejemplo, `A90000301` para `90000301-3`.
 
+### Personas de demostración
+
+Todas son ficticias y están en `fixtures/identidades_demo.json`.
+
+| Quién firma | Nombre | RUT | N° de documento (serie) |
+|---|---|---|---|
+| Representante de Easy Office | Rodrigo Andrés Ejemplo Ficticio | `90000001-4` | `A90000001` |
+| Autorizante, sucursal La Florida | María José Propietaria Ejemplo 1 | `90000101-0` | `A90000101` |
+| Autorizante, sucursal Valparaíso | María José Propietaria Ejemplo 2 | `90000102-9` | `A90000102` |
+| Autorizante, sucursal San Antonio | María José Propietaria Ejemplo 3 | `90000103-7` | `A90000103` |
+| Dueña de la Bodega de Ejemplo Norte | Carolina Andrea Bodeguera Ejemplo | `90000201-7` | `A90000201` |
+| Dueño de la Bodega de Ejemplo Costa | Pedro Pablo Almacén Ficticio | `90000202-5` | `A90000202` |
+| Representante del cliente | Representante Demo 1 (lo usa la prueba e2e) | `90000301-3` | `A90000301` |
+| Representante del cliente | Representante Demo 2 | `90000302-1` | `A90000302` |
+| Representante del cliente | Representante Demo 3 | `90000303-K` | `A90000303` |
+| Representante del cliente | Representante Demo 4 | `90000304-8` | `A90000304` |
+| Representante del cliente | Representante Demo 5 | `90000305-6` | `A90000305` |
+
+Cada RUT de representante del cliente sirve para una sola empresa.
+
 ## PKI pública
 
 | Ruta | Contenido |
