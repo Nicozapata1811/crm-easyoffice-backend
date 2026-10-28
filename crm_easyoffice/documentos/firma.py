@@ -218,7 +218,6 @@ def enviar(tramite_id: int) -> SolicitudFirma | None:
             Firmante.objects.filter(documento=documento, pk=estado.reference).update(
                 id_externo=estado.external_id,
             )
-    # TODO(RF-15): record the request sent in the audit log (HU-30).
     return solicitud
 
 
@@ -375,7 +374,6 @@ def _completar(solicitud: SolicitudFirma, resultado: SignatureResult) -> None:
     solicitud.estado = SolicitudFirma.Estado.COMPLETADA
     solicitud.terminada_en = timezone.now()
     solicitud.save()
-    # TODO(RF-15): record the signed PDF stored in the audit log (HU-30).
 
 
 def sincronizar(solicitud_id: int) -> None:

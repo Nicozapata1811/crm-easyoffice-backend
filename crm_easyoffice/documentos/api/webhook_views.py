@@ -97,5 +97,4 @@ class FirmaWebhookView(APIView):
             return Response({"status": "duplicado"})
         if solicitud is not None:
             transaction.on_commit(lambda: procesar_evento_firma.delay(registrado.pk))
-        # TODO(RF-15): record the webhook received in the audit log (HU-30).
         return Response({"status": "ok"})

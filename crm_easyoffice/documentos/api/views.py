@@ -27,6 +27,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from crm_easyoffice.clientes.api.permissions import EsCliente
+from crm_easyoffice.core.auditoria.eventos import Accion
+from crm_easyoffice.core.auditoria.eventos import registrar_evento
 from crm_easyoffice.documentos import firma
 from crm_easyoffice.documentos import tasks
 from crm_easyoffice.documentos.models import Documento
@@ -107,7 +109,12 @@ def _descargar(documento: Documento, tipo: str) -> FileResponse:
     )
     response["Cache-Control"] = "no-store, private"
     response["X-Content-Type-Options"] = "nosniff"
-    # TODO(RF-15): record each download in the audit log (HU-30).
+    registrar_evento(
+        Accion.DESCARGA_DOCUMENTO,
+        entidad="documentos.documento",
+        registro_id=documento.pk,
+        datos={"archivo": tipo},
+    )
     return response
 
 

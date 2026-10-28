@@ -245,8 +245,9 @@ recibe en `core/0003_dashboard_ejecutivo` (ACTA-002, D2-06).
 Cada aplicación nueva asigna sus permisos a estos roles en su propia
 migración de datos.
 
-El registro de cada ingreso en auditoría (criterio de HU-01) queda pendiente del
-módulo de auditoría (RF-15, HU-30).
+Cada ingreso, cierre de sesión e intento fallido queda en el registro de
+auditoría (criterio de HU-01; ver «Registro de auditoría»). Solo el
+Administrador tiene `core.consultar_auditoria` (`core/0006_permiso_auditoria`).
 
 ---
 
@@ -548,6 +549,62 @@ ejemplo". La columna Detalle dice "Al dd-mm-aaaa" en las cifras a una fecha y
 `dias_aviso` es la ventana de "por vencer"; 30 días es una suposición pendiente
 de validar (HU-42 propone 60, 30, 15 y 7).
 
+### Registro de auditoría (HU-30, HU-31 · RF-15, RF-16, RF-17, RS-04)
+
+**Qué se registra.** Disparadores de PostgreSQL (AD-08) escriben en
+`core_registroauditoria` cada inserción, modificación y eliminación de las
+tablas auditadas, también las hechas con `queryset.update()`, en lote, desde el
+panel de administración o con SQL directo. Una inserción guarda la fila nueva;
+una eliminación, la anterior; una modificación, solo los campos que cambiaron,
+antes y después (una modificación que no cambia nada no deja registro). La
+lista de tablas auditadas, las excluidas y los campos que nunca se guardan
+viven en un solo lugar, `crm_easyoffice/core/auditoria/registro.py`: nunca se
+guardan `last_login`, `Pago.respuesta`, `OrdenPago.redirect_url` ni
+`Documento.datos_snapshot`; la contraseña aparece como `***`, nunca su hash; los
+archivos, solo por su nombre. Los roles y permisos se registran por nombre
+(`{"rol": "Ejecutivo"}`). Además, `core.auditoria.registrar_evento` registra lo
+que no cambia filas: ingreso, cierre de sesión e intento fallido (personal,
+portal, panel de administración), descarga de un documento del trámite y acceso
+a la cédula del autorizante.
+
+**Quién, desde dónde y por qué canal.** Cada fila lleva `usuario`,
+`direccion_ip` y `origen` (`api`, `portal`, `admin` o `sistema`). Las tareas de
+Celery, los webhooks de pago y de firma y los comandos quedan como `sistema`,
+sin usuario.
+Los disparadores leen el contexto de `set_config(..., true)` (equivalente a
+`SET LOCAL`), que se fija antes de la primera escritura de cada transacción y
+termina con ella: nunca pasa a la petición siguiente. Una escritura fuera de
+transacción queda sin usuario, nunca con el de otro.
+
+**Protección.** La base de datos rechaza `UPDATE`, `DELETE` y `TRUNCATE` sobre
+el registro, también para el usuario de la aplicación; el modelo rechaza
+`save()` sobre una fila existente y `delete()`, y el panel de administración es
+de solo lectura incluso para un superusuario. El dueño de la base de datos
+puede, en todo caso, eliminar los disparadores: separar ese rol del de la
+aplicación es una tarea del despliegue (TA-09). `manage.py flush` falla; para
+reiniciar la base local, `docker compose down -v`.
+
+**Consulta.** Solo con `core.consultar_auditoria` (Administrador). El Ejecutivo,
+un cliente del portal y un usuario anónimo reciben `403`. No hay método de
+escritura.
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /api/auditoria/` | Registro paginado (25), del más reciente al más antiguo. Filtros: `entidad` (por ejemplo `clientes.cliente`) y `registro_id`, `usuario`, `accion`, `origen`, `desde` y `hasta` (`AAAA-MM-DD`, inclusive, hora de Chile) |
+| `GET /api/auditoria/historial/?entidad=&registro_id=` | Historial de un registro junto con los que le pertenecen: el de un cliente incluye su persona o empresa, sus representantes y su cuenta del portal; el de un trámite, su contrato y sus líneas, su venta, órdenes y pagos, y sus documentos y firmantes. Incluye las filas ya eliminadas |
+
+Cada fila trae `fecha_hora`, `usuario` y `usuario_nombre` (`null` cuando actuó
+el sistema), `origen`, `accion` (`crear`, `modificar`, `eliminar`,
+`inicio_sesion`, `cierre_sesion`, `inicio_sesion_fallido`,
+`descarga_documento`, `acceso_documento_identidad`), `entidad` y
+`entidad_nombre`, `registro_id` y `registro_nombre`, `valor_anterior`,
+`valor_nuevo` y `direccion_ip`.
+
+Suposiciones pendientes de validar con Easy Office: que los intentos fallidos
+se conserven con el correo escrito; el plazo de conservación del registro (hoy
+indefinido); que el historial de un cliente no incluya sus contratos ni
+trámites; y qué encabezado de proxy da la IP del cliente en producción.
+
 ### Pago con Flow en local
 
 Flow no publica credenciales compartidas: cada desarrollador crea una cuenta en
@@ -689,6 +746,8 @@ Sprint 2 (6 – 17 de octubre de 2026). Ya están:
 - los indicadores del panel operativo, exportables a Excel;
 - el domicilio tributario de punta a punta (PLT-01) y el contrato de bodega
   (PLT-02), iniciado desde el backoffice;
+- el registro de auditoría con disparadores de base de datos, protegido contra
+  modificación, y su consulta para el Administrador (HU-30, HU-31);
 - la firma electrónica avanzada a través de un proveedor, probada contra un
   PSC de pruebas propio y sin validez legal (IN-01).
 

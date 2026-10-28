@@ -11,6 +11,7 @@ from django.contrib.auth.models import Permission
 from django.urls import reverse
 from rest_framework.test import APIClient
 
+from crm_easyoffice.core.models import RegistroAuditoria
 from crm_easyoffice.inmuebles.services import guardar_documento_identidad
 from crm_easyoffice.inmuebles.tests.factories import JPEG
 from crm_easyoffice.inmuebles.tests.factories import AutorizanteFactory
@@ -99,3 +100,31 @@ def test_card_permission_is_outside_the_ejecutivo_seed_filter():
     )
 
     assert not concedidas.filter(codename="descargar_documento_identidad").exists()
+
+
+def test_each_access_to_the_identity_card_is_audited(autorizante):
+    guardar_documento_identidad(autorizante, archivo(), reverso=True)
+    administrador = client_for(seed.ADMINISTRADOR)
+
+    reverso = administrador.get(url(autorizante), {"lado": "reverso"})
+    anverso = administrador.get(url(autorizante))
+
+    assert reverso.status_code == anverso.status_code == HTTPStatus.OK
+    accesos = RegistroAuditoria.objects.filter(
+        accion=RegistroAuditoria.Accion.ACCESO_DOCUMENTO_IDENTIDAD,
+        entidad="inmuebles.autorizante",
+        registro_id=autorizante.pk,
+    ).order_by("pk")
+    assert [a.valor_nuevo for a in accesos] == [
+        {"lado": "reverso"},
+        {"lado": "anverso"},
+    ]
+    assert all(a.usuario_id and a.origen == "api" for a in accesos)
+
+
+def test_a_denied_access_is_not_audited_as_an_access(autorizante):
+    client_for(seed.EJECUTIVO).get(url(autorizante))
+
+    assert not RegistroAuditoria.objects.filter(
+        accion=RegistroAuditoria.Accion.ACCESO_DOCUMENTO_IDENTIDAD,
+    ).exists()

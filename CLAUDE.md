@@ -188,8 +188,10 @@ class PaymentProvider(ABC): ...
   - **Backoffice actions:** `…/firma/reenviar|cancelar|reintentar/`
     (`documentos.gestionar_firma`). The upload answers 409 `firma_avanzada`
     for `avanzada` types.
-  - **Audit.** HU-30 is not merged: `TODO(RF-15)` marks the request sent, the
-    webhook received and the signed PDF stored.
+  - **Audit.** `SolicitudFirma` is audited (core 0007): the request sent and
+    each state change are recorded as row changes, as is the signed PDF on
+    `Documento`; `EventoFirma` is the webhook log and stays out of the audit
+    log, like `EventoPago`. Webhooks under `/api/firma/` are `sistema`.
 - **Payment.** The company has **not decided** the provider yet. Options
   mentioned were Transbank and Mercado Pago. Two adapters exist, both an
   assumption until Easy Office decides: `integrations/payment/klap.py` (Klap
@@ -244,7 +246,8 @@ Tests use the simulated converter.
   `core.PermisoSistema` (today: `core.view_dashboard`, RF-14).
 - `me` returns `rol` and `permisos`; clients authorise on permissions, not on
   the role name.
-- Logins are not audited yet: `TODO(RF-15)` in `LoginView`.
+- Sign-ins, sign-outs and failed attempts (staff, portal, admin, allauth) are
+  audited from Django's auth signals in `core.apps` (see "Audit log").
 - `/api/auth-token/` and `TokenAuthentication` come from cookiecutter and
   conflict with AD-03. Removal is pending a team decision.
 - **Client portal accounts** (HU-03): `clientes.CuentaCliente` links a `User`
@@ -410,7 +413,7 @@ Tests use the simulated converter.
     (a case and its dated history), `ventas.tests.factories.venta_pagada`
     and `documentos.tests.factories.documento_generado` (a row on the seeded
     PLT-01 v1, no file rendered). A query-count test keeps the dashboard at
-    a fixed number of queries. The whole suite has 684 tests (firma_sandbox/ has its own 62).
+    a fixed number of queries. The whole suite has 749 tests (firma_sandbox/ has its own 62).
 
 - **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
   `precio_confirmado=False`), `CicloPago` (único … anual, HU-23), `Venta`,
@@ -544,6 +547,52 @@ Tests use the simulated converter.
     executive uploads the signed PDF (assisted signature) at
     `POST /api/tramites/{id}/documentos/{doc}/firmado/subir/`
     (`documentos.subir_documento_firmado`; PDF by content, 10 MB).
+- **Audit log** (`core/auditoria/`, HU-30, HU-31; RF-15..17, RS-04):
+  - Row changes are written by PostgreSQL triggers (AD-08) into
+    `core.RegistroAuditoria`: INSERT stores the new row, DELETE the old one,
+    UPDATE only the changed fields (nothing when only `updated_at` changed).
+    `queryset.update()`, bulk operations, the admin and raw SQL are caught.
+  - `core/auditoria/registro.py` is the one place that says what is audited
+    (`AUDITADAS`; `RELACIONES` for role and permission rows, stored by name),
+    what is left out on purpose (`NO_AUDITADAS`) and which fields are never
+    stored (`EXCLUIDOS_GLOBAL`, per-table `excluir`; `password` is masked as
+    `***`). A test fails when a model is in neither list, and another when
+    the triggers in the database differ from the module. **A new model needs
+    an entry there and a core migration that installs its trigger**
+    (`core.auditoria.sql.crear_trigger`; see migrations 0004 to 0006).
+  - Who, from where, which channel: the triggers read `app.usuario_id`,
+    `app.ip` and `app.origen`, set with `set_config(..., true)` (`SET LOCAL`)
+    by a per-connection `execute_wrapper` (`core.auditoria.contexto`) before
+    the first write of each transaction. A middleware cannot do it:
+    `ATOMIC_REQUESTS` wraps only the view. `AuditoriaMiddleware` makes the
+    request the context; Celery tasks run as `sistema` (`task_prerun`); no
+    context means `sistema` with no user. `origen` is `admin` under
+    `ADMIN_URL`, `portal` under `/api/portal/` (and `/api/auth/` for a client
+    account), `sistema` under `/api/pagos/` and `/api/firma/`, else `api`.
+    A write outside a transaction carries no user. Reads cost no query; a
+    write transaction costs one `set_config`, sent on the driver cursor, so
+    Django's query count does not show it.
+  - Events that change no row go through `core.auditoria.registrar_evento`:
+    sign-in, sign-out and failed sign-in (auth signals), document download
+    (`documentos.api.views._descargar`) and identity-card access
+    (`inmuebles.services.abrir_documento_identidad`, also during generation).
+  - Append-only (RF-16): triggers raise on UPDATE, DELETE and TRUNCATE of the
+    log, for the application's own DB user too; the model refuses `save()` on
+    an existing row and `delete()`; the admin is read-only for everyone. The
+    DB owner can still drop triggers (a separate role is a deployment task,
+    TA-09). `manage.py flush` fails; reset locally with
+    `docker compose down -v`. No test may use `transaction=True`: its flush
+    would TRUNCATE the log.
+  - `usuario` is `PROTECT`: a user who acted is deactivated, not deleted.
+  - API (`core/api/`), `core.consultar_auditoria` only (Administrador,
+    `core/0006_permiso_auditoria`): `GET /api/auditoria/` (filters `entidad`,
+    `registro_id`, `usuario`, `accion`, `origen`, `desde`, `hasta`) and
+    `GET /api/auditoria/historial/?entidad=&registro_id=` (the record plus
+    what `registro.HISTORIAL` says belongs to it, deleted rows included).
+    Rows carry `usuario_nombre`, `entidad_nombre` and `registro_nombre`.
+  - Assumptions: failed sign-ins kept with the typed email; retention
+    undefined; a client's history excludes contracts and cases; the client IP
+    behind the production proxy (`REMOTE_ADDR` today).
 
 ---
 
@@ -636,8 +685,7 @@ Done:
 - the advanced signature through an HTTP provider, end to end against the
   test PSC (`firma_sandbox/`, IN-01), `asistida` by default.
 
-Still to build: user management (HU-02) and the audit log (HU-30, RF-15). Until
-the audit log exists, client changes carry `TODO(RF-15)`.
+Still to build: user management (HU-02). The audit log (HU-30, HU-31) is done.
 
 **Still unknown — do not invent answers:**
 
