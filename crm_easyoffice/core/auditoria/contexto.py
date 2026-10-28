@@ -136,8 +136,9 @@ def origen_de(request: HttpRequest, user: Any) -> str:
         return Origen.ADMIN
     if ruta.startswith("/api/portal/"):
         return Origen.PORTAL
-    if ruta.startswith("/api/pagos/"):
-        # Payment webhooks and the provider's return: nobody's action.
+    if ruta.startswith(("/api/pagos/", "/api/firma/")):
+        # Payment and signature webhooks, and the payment provider's return:
+        # nobody's action.
         return Origen.SISTEMA
     if (
         ruta.startswith("/api/auth/")

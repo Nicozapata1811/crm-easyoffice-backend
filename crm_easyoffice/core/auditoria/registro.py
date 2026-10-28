@@ -75,6 +75,7 @@ AUDITADAS = (
     # already keeps and never changes: copying it again adds nothing.
     Auditada("documentos_documento", "documentos.documento", ("datos_snapshot",)),
     Auditada("documentos_firmante", "documentos.firmante"),
+    Auditada("documentos_solicitudfirma", "documentos.solicitudfirma"),
     Auditada("ventas_ciclopago", "ventas.ciclopago"),
     Auditada("ventas_servicio", "ventas.servicio"),
     Auditada("ventas_planservicio", "ventas.planservicio"),
@@ -100,6 +101,7 @@ NO_AUDITADAS = (
     "core_registroauditoria",  # the log itself
     "tramites_eventotramite",  # append-only history of its own
     "ventas_eventopago",  # webhook log with the raw payloads
+    "documentos_eventofirma",  # signature webhook log with the raw payloads
     "contratos_correlativofolio",  # folio counter, changes on every contract
     "auth_permission",
     "django_content_type",
@@ -184,6 +186,7 @@ HISTORIAL = {
     ),
     "documentos.documento": (
         Vinculo("documentos.firmante", "documento_id", hija=True),
+        Vinculo("documentos.solicitudfirma", "documento_id", hija=True),
     ),
     "ventas.venta": (
         Vinculo("ventas.itemventa", "venta_id", hija=True),

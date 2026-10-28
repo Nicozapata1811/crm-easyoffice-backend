@@ -2,6 +2,7 @@ volumes:
   crm_easyoffice_local_postgres_data: {}
   crm_easyoffice_local_postgres_data_backups: {}
   crm_easyoffice_local_redis_data: {}
+  crm_easyoffice_local_firma_sandbox_data: {}
 
 services:
   django: &django
@@ -21,6 +22,8 @@ services:
       - path: ./.envs/.local/.django
         required: false
       - path: ./.envs/.local/.postgres
+        required: false
+      - path: ./.envs/.local/.firma
         required: false
     ports:
       - '8000:8000'
@@ -107,3 +110,48 @@ services:
       timeout: 5s
       retries: 2
       start_period: 20s
+
+  # The test PSC (PSC de pruebas): a fictitious advanced-signature provider for
+  # development, with its own test CA. Its signatures have no legal validity
+  # and it is not in docker-compose.production.yml. It starts with the rest
+  # of the stack; it needs .envs/.local/.firma (see .envs.example), and
+  # without it the service refuses to start.
+  # The port serves only the signing pages and the PKI downloads to the
+  # browser; its API answers only on the compose network (firma-sandbox:8100).
+  firma-sandbox: &firma-sandbox
+    build:
+      context: .
+      dockerfile: ./compose/local/firma_sandbox/Dockerfile
+    image: crm_easyoffice_local_firma_sandbox
+    container_name: crm_easyoffice_local_firma_sandbox
+    depends_on:
+      - mailpit
+    volumes:
+      - ./firma_sandbox:/app:z
+      - crm_easyoffice_local_firma_sandbox_data:/data
+    environment:
+      FIRMA_SANDBOX_DATA_DIR: /data
+      FIRMA_SANDBOX_PKI_DIR: /app/.pki
+    env_file:
+      - path: ./.envs/.local/.firma
+        required: false
+    ports:
+      - '127.0.0.1:8100:8100'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/pki/raiz.crt', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    command: /start
+
+  firma-sandbox-worker:
+    <<: *firma-sandbox
+    container_name: crm_easyoffice_local_firma_sandbox_worker
+    depends_on:
+      firma-sandbox:
+        condition: service_healthy
+    ports: []
+    healthcheck:
+      disable: true
+    command: /start-worker

@@ -12,3 +12,6 @@ venv
 .envs/
 .venv/
 **/__pycache__/
+
+# The test PSC never goes into the CRM images.
+firma_sandbox/

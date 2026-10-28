@@ -103,7 +103,13 @@ Ejecutar las pruebas:
 docker compose -f docker-compose.local.yml run --rm django pytest
 ```
 
-La suite tiene 637 pruebas.
+La suite tiene 684 pruebas. El PSC de pruebas tiene las suyas (62), y hay una
+prueba de punta a punta de la firma avanzada que usa todo el stack:
+
+```bash
+just firma-pytest
+just e2e-firma
+```
 
 | Servicio | URL |
 |---|---|
@@ -196,8 +202,15 @@ desordenados.
 
 **Integraciones externas.** Firma electrónica avanzada y pago viven detrás de
 interfaces propias en `integrations/`. Las credenciales del proveedor de firma
-aún no están disponibles, por lo que existe una implementación simulada que
-satisface el mismo contrato. Para el pago hay una implementación simulada y un
+(tufirma.digital) aún no están disponibles. Mientras tanto, la firma se hace de
+dos formas:
+
+- asistida: un ejecutivo sube el PDF firmado;
+- avanzada: contra un PSC de pruebas propio, `firma_sandbox/`, a través de un
+  adaptador HTTP, sin validez legal (ver «Firma avanzada con el PSC de pruebas
+  en local»).
+
+Las pruebas unitarias usan una implementación simulada del mismo contrato. Para el pago hay una implementación simulada y un
 adaptador de Klap Checkout Flex, elegidos con `PAYMENT_PROVIDER`; Easy Office
 aún no define el proveedor, así que Klap es una suposición pendiente de validar.
 Ningún SDK ni cliente HTTP de proveedor se usa fuera de esa aplicación.
@@ -556,7 +569,8 @@ a la cédula del autorizante.
 
 **Quién, desde dónde y por qué canal.** Cada fila lleva `usuario`,
 `direccion_ip` y `origen` (`api`, `portal`, `admin` o `sistema`). Las tareas de
-Celery, los webhooks de pago y los comandos quedan como `sistema`, sin usuario.
+Celery, los webhooks de pago y de firma y los comandos quedan como `sistema`,
+sin usuario.
 Los disparadores leen el contexto de `set_config(..., true)` (equivalente a
 `SET LOCAL`), que se fija antes de la primera escritura de cada transacción y
 termina con ella: nunca pasa a la petición siguiente. Una escritura fuera de
@@ -655,6 +669,70 @@ automáticas.
 
 ---
 
+### Firma avanzada con el PSC de pruebas en local
+
+> El PSC de pruebas es un prestador **ficticio**: sus firmas no tienen validez
+> legal (Ley 19.799). Solo existe en `docker-compose.local.yml` y se niega a
+> iniciar fuera de desarrollo. La firma legal queda con un prestador acreditado
+> (tufirma.digital, RN-21), cuando lleguen sus credenciales (TA-07).
+
+Cada tipo de trámite dice cómo se firma en `configuracion["firma"]`:
+
+- `nivel`: `asistida`, por defecto (el ejecutivo sube el PDF firmado), o
+  `avanzada` (el documento va al proveedor);
+- `firmantes`: opcional, los roles en orden.
+
+La migración `tramites 0006` deja ambos tipos en `asistida`.
+
+Para firmar con el PSC de pruebas:
+
+```bash
+cp .envs.example/.local/.firma .envs/.local/.firma   # reemplaza cada CHANGEME
+docker compose -f docker-compose.local.yml up -d
+docker compose -f docker-compose.local.yml run --rm django python manage.py seed_demo_firma_avanzada
+```
+
+`seed_demo_firma_avanzada` pasa ambos tipos a `avanzada`, con la firma en este
+orden: representante del cliente, representante de Easy Office, autorizante.
+Es un supuesto. `--asistida` los devuelve a la firma asistida.
+
+En un trámite de bodega iniciado en el backoffice:
+
+1. Usa como representante del cliente uno de los RUT `90000302-1`,
+   `90000303-K`, `90000304-8` o `90000305-6`, cada uno para una sola empresa.
+   `90000301-3` lo usa la prueba de punta a punta.
+2. Confirma el borrador. El CRM envía el PDF y los firmantes al PSC (Celery).
+3. Cada firmante recibe su enlace y su código en Mailpit
+   (`http://localhost:8025`). El número de serie de su cédula es «A» y el
+   número del RUT, por ejemplo `A90000301`.
+4. Al firmar el último, el PSC avisa por webhook. El CRM descarga el PDF,
+   verifica que conserva el documento enviado (RF-39), lo guarda con su
+   SHA-256 y completa el trámite: el contrato queda vigente.
+
+Qué se ve en el backoffice:
+
+- el estado de cada firmante y el id de la solicitud en el proveedor;
+- las acciones reenviar enlace, cancelar y reintentar.
+
+Si un firmante rechaza o la solicitud vence, el trámite queda en «falta
+información» con el detalle. La tarea `sincronizar_solicitudes_abiertas`
+consulta el estado cada 15 minutos por si se pierde un webhook.
+
+La prueba de punta a punta (`just e2e-firma`) hace este recorrido completo y
+valida el PDF final contra la raíz de pruebas. La API del PSC está documentada
+como la de un proveedor en `firma_sandbox/README.md`.
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| `POST` | `/api/firma/webhooks/<proveedor>/` | Ninguno: HMAC y ventana de 5 minutos |
+| `POST` | `/api/tramites/{id}/documentos/{doc}/firma/reenviar/` | `documentos.gestionar_firma` |
+| `POST` | `/api/tramites/{id}/documentos/{doc}/firma/cancelar/` | `documentos.gestionar_firma` |
+| `POST` | `/api/tramites/{id}/documentos/{doc}/firma/reintentar/` | `documentos.gestionar_firma` |
+
+Las tres acciones responden `202`: el proveedor se llama en Celery.
+
+---
+
 ## Estado actual
 
 Sprint 2 (6 – 17 de octubre de 2026). Ya están:
@@ -669,11 +747,14 @@ Sprint 2 (6 – 17 de octubre de 2026). Ya están:
 - el domicilio tributario de punta a punta (PLT-01) y el contrato de bodega
   (PLT-02), iniciado desde el backoffice;
 - el registro de auditoría con disparadores de base de datos, protegido contra
-  modificación, y su consulta para el Administrador (HU-30, HU-31).
+  modificación, y su consulta para el Administrador (HU-30, HU-31);
+- la firma electrónica avanzada a través de un proveedor, probada contra un
+  PSC de pruebas propio y sin validez legal (IN-01).
 
 Siguen pendientes los campos definitivos del cliente, los estados de los
-trámites, las plantillas reales, el proveedor de firma, la confirmación del
-proveedor de pago y de los precios, y la política de reembolsos.
+trámites, las plantillas reales, la confirmación del
+proveedor de pago y de los precios, la política de reembolsos, y las
+credenciales y el adaptador de tufirma.digital.
 
 ---
 

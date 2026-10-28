@@ -19,6 +19,23 @@ from dataclasses import dataclass
 from dataclasses import field
 
 
+class SignerState(enum.StrEnum):
+    """Where one signer stands."""
+
+    PENDING = "pending"
+    SIGNED = "signed"
+    DECLINED = "declined"
+
+
+class SignatureEventType(enum.StrEnum):
+    """What a provider notifies. The adapter maps the provider's names."""
+
+    SIGNER_SIGNED = "signer_signed"
+    SIGNER_DECLINED = "signer_declined"
+    COMPLETED = "completed"
+    EXPIRED = "expired"
+
+
 class SignatureStatus(enum.StrEnum):
     """Lifecycle of a signature request, as this project models it.
 
@@ -47,6 +64,22 @@ class Signer:
     email: str
     rut: str | None = None
     order: int = 0
+    role: str = ""
+    # Our own id for this signer; the provider echoes it back in each status.
+    reference: str = ""
+
+
+@dataclass(frozen=True)
+class SignerStatus:
+    """One signer's state, as the provider reports it."""
+
+    reference: str
+    external_id: str
+    order: int
+    status: SignerState
+    signed_at: str | None = None
+    declined_at: str | None = None
+    declined_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -59,6 +92,7 @@ class SignatureRequest:
     signers: list[Signer]
     callback_url: str | None = None
     metadata: dict[str, str] = field(default_factory=dict)
+    expires_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,10 +110,34 @@ class SignatureResult:
     signed_hash: str | None = None
     signed_at: str | None = None
     raw_response: dict = field(default_factory=dict)
+    signers: list[SignerStatus] = field(default_factory=list)
+    # SHA-256 of the document the provider received, as it reports it. The
+    # domain checks it against what it sent (RF-39).
+    original_sha256: str | None = None
+    # The provider says it is a test environment: its signatures have no
+    # legal validity.
+    test_environment: bool = False
+
+
+@dataclass(frozen=True)
+class SignatureEvent:
+    """A verified webhook. ``event_id`` is what duplicates are detected by."""
+
+    event_id: str
+    type: SignatureEventType
+    result: SignatureResult
 
 
 class SignatureError(Exception):
-    """Raised when a signature operation cannot be completed."""
+    """Raised when a signature operation cannot be completed.
+
+    ``transient`` marks failures worth retrying (timeouts, 5xx), as in
+    ``PaymentError``.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 class SignatureProvider(ABC):
@@ -109,10 +167,14 @@ class SignatureProvider(ABC):
         """Cancel a signature process that has not completed."""
 
     @abstractmethod
-    def parse_webhook(self, payload: dict, headers: dict[str, str]) -> SignatureResult:
-        """Translate a provider webhook into a ``SignatureResult``.
+    def resend(self, external_id: str, signer_external_id: str) -> None:
+        """Send a pending signer a new link; the previous one stops working."""
 
-        Implementations are responsible for verifying authenticity. Callers are
-        responsible for idempotency: the same event may arrive more than once
-        and events may arrive out of order.
+    @abstractmethod
+    def parse_webhook(self, body: bytes, headers: dict[str, str]) -> SignatureEvent:
+        """Verify a provider webhook and translate it into a ``SignatureEvent``.
+
+        It takes the raw body because authenticity is checked over the exact
+        bytes received. Callers are responsible for idempotency: the same
+        event may arrive more than once and events may arrive out of order.
         """

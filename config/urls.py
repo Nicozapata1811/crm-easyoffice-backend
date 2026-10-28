@@ -38,6 +38,7 @@ urlpatterns += [
     path("api/inmuebles/", include("crm_easyoffice.inmuebles.api.urls")),
     path("api/portal/", include("config.portal_urls")),
     path("api/pagos/", include("crm_easyoffice.ventas.api.webhook_urls")),
+    path("api/firma/", include("crm_easyoffice.documentos.api.webhook_urls")),
     # DRF auth token
     path("api/auth-token/", obtain_auth_token, name="obtain_auth_token"),
     path("api/schema/", SpectacularAPIView.as_view(), name="api-schema"),

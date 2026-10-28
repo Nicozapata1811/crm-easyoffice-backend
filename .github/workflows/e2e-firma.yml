@@ -1,0 +1,86 @@
+name: E2E firma avanzada
+
+# A warehouse case signed by three people through the test PSC (firma_sandbox/),
+# with every service of docker-compose.local.yml running. The PSC's
+# signatures have no legal validity; every value here is a test one.
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+  COMPOSE_FILE: docker-compose.local.yml
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ['main']
+    paths:
+      - 'firma_sandbox/**'
+      - 'compose/local/firma_sandbox/**'
+      - 'crm_easyoffice/integrations/signature/**'
+      - 'crm_easyoffice/documentos/**'
+      - 'crm_easyoffice/tramites/**'
+      - 'e2e/**'
+      - '.github/workflows/e2e-firma.yml'
+
+concurrency:
+  group: e2e-firma-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v6
+
+      - name: Write local env files with fresh test values
+        run: |
+          mkdir -p .envs/.local
+          secreto() { python3 -c "import secrets; print(secrets.token_urlsafe(32))"; }
+          cat <<EOF2 > .envs/.local/.django
+          USE_DOCKER=yes
+          IPYTHONDIR=/app/.ipython
+          REDIS_URL=redis://redis:6379/0
+          CELERY_FLOWER_USER=debug
+          CELERY_FLOWER_PASSWORD=debug
+          PDF_CONVERTER=gotenberg
+          GOTENBERG_URL=http://gotenberg:3000
+          PAYMENT_TUNNEL_METRICS_URL=
+          EOF2
+          cat <<EOF2 > .envs/.local/.postgres
+          POSTGRES_HOST=postgres
+          POSTGRES_PORT=5432
+          POSTGRES_DB=ci
+          POSTGRES_USER=debug
+          POSTGRES_PASSWORD=debug
+          EOF2
+          sed -e "s/^SIGNATURE_API_KEY=.*/SIGNATURE_API_KEY=$(secreto)/" \
+              -e "s/^SIGNATURE_WEBHOOK_SECRET=.*/SIGNATURE_WEBHOOK_SECRET=$(secreto)/" \
+              -e "s/^FIRMA_SANDBOX_KEY_PASSPHRASE=.*/FIRMA_SANDBOX_KEY_PASSPHRASE=$(secreto)/" \
+              .envs.example/.local/.firma > .envs/.local/.firma
+
+      - name: Build the images
+        run: docker compose build django firma-sandbox
+
+      - name: Start the stack
+        run: |
+          docker compose up -d --wait firma-sandbox
+          docker compose up -d django celeryworker firma-sandbox-worker mailpit gotenberg
+
+      - name: Migrate and switch the case types to the advanced signature
+        run: |
+          docker compose run --rm django python manage.py migrate
+          docker compose run --rm django python manage.py seed_demo_firma_avanzada
+
+      - name: Sign end to end
+        run: docker compose run --rm django pytest -o addopts="" -p no:django -m e2e e2e
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail=200 django celeryworker firma-sandbox firma-sandbox-worker
+
+      - name: Tear down the Stack
+        if: always()
+        run: docker compose down -v

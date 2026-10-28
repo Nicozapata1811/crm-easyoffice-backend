@@ -21,16 +21,20 @@ from docx.shared import Mm
 from docxtpl import DocxTemplate
 from docxtpl import InlineImage
 
+from crm_easyoffice.configuracion.services import obtener_config_empresa
 from crm_easyoffice.core.validators import validate_file_signature
 from crm_easyoffice.integrations.pdf.base import PdfError
 from crm_easyoffice.integrations.pdf.registry import get_pdf_converter
 from crm_easyoffice.tramites.models import Tramite
+from crm_easyoffice.tramites.services import AVANZADA
 from crm_easyoffice.tramites.services import INICIADO
 from crm_easyoffice.tramites.services import TransicionInvalidaError
 from crm_easyoffice.tramites.services import completar
 from crm_easyoffice.tramites.services import documento_fallido
 from crm_easyoffice.tramites.services import documento_listo
 from crm_easyoffice.tramites.services import en_firma
+from crm_easyoffice.tramites.services import nivel_firma
+from crm_easyoffice.tramites.services import roles_firmantes
 from crm_easyoffice.tramites.services import verificar_para_firma
 
 from . import plt01
@@ -46,6 +50,8 @@ if TYPE_CHECKING:
 
     from django.core.files import File
 
+    from crm_easyoffice.clientes.models import Persona
+    from crm_easyoffice.tramites.models import TipoTramite
     from crm_easyoffice.users.models import User
 
 logger = logging.getLogger(__name__)
@@ -64,6 +70,10 @@ MAX_FIRMADO_BYTES = 10 * 1024 * 1024
 
 class DocumentoNoFirmableError(Exception):
     """The document is not the current one, or its case is not at signing."""
+
+
+class FirmaAvanzadaError(DocumentoNoFirmableError):
+    """The case type signs through the provider, not by upload."""
 
 
 def _sha256(contenido: bytes) -> str:
@@ -168,10 +178,34 @@ def generar(tramite: Tramite) -> Documento | None:
         documento.save()
         Firmante.objects.bulk_create(
             Firmante(documento=documento, persona=persona, rol=rol, orden=orden)
-            for orden, (persona, rol) in enumerate(contexto.firmantes, start=1)
+            for orden, (persona, rol) in enumerate(
+                firmantes_en_orden(tramite.tipo, contexto),
+                start=1,
+            )
         )
         documento_listo(tramite)
     return documento
+
+
+def firmantes_en_orden(
+    tipo: TipoTramite,
+    contexto: Contexto,
+) -> list[tuple[Persona, str]]:
+    """The template's signers, ordered and completed by ``firma.firmantes``.
+
+    Without that key the template's own list stands, as before IN-01. The
+    configuration may add Easy Office's representative, who is a party to
+    both contracts but not one of the template's signers.
+    """
+    roles = roles_firmantes(tipo)
+    if roles is None:
+        return list(contexto.firmantes)
+    por_rol = {rol: persona for persona, rol in contexto.firmantes}
+    if Firmante.Rol.REPRESENTANTE_EMISOR in roles:
+        por_rol[Firmante.Rol.REPRESENTANTE_EMISOR] = (
+            obtener_config_empresa().representante
+        )
+    return [(por_rol[rol], rol) for rol in roles if por_rol.get(rol) is not None]
 
 
 def documento_vigente(tramite: Tramite) -> Documento | None:
@@ -205,6 +239,8 @@ def registrar_firmado(documento: Documento, archivo: File, usuario: User) -> Doc
         raise ValidationError({"archivo": error.messages}) from error
 
     tramite = documento.tramite
+    if nivel_firma(tramite.tipo) == AVANZADA:
+        raise FirmaAvanzadaError
     if documento != documento_vigente(tramite) or documento.archivo_firmado:
         raise DocumentoNoFirmableError
     try:
@@ -213,7 +249,21 @@ def registrar_firmado(documento: Documento, archivo: File, usuario: User) -> Doc
         raise DocumentoNoFirmableError from error
 
     archivo.seek(0)
-    contenido = archivo.read()
+    return guardar_firmado(documento, archivo.read(), usuario)
+
+
+def guardar_firmado(
+    documento: Documento,
+    contenido: bytes,
+    usuario: User | None = None,
+) -> Documento:
+    """Store the signed PDF with its hash and complete the case (RN-24).
+
+    The end state of both signature levels: the executive's upload
+    (``usuario``) and the provider's file (no user). Signers already marked
+    by the provider keep their own time.
+    """
+    tramite = documento.tramite
     with transaction.atomic():
         documento = Documento.objects.select_for_update().get(pk=documento.pk)
         documento.archivo_firmado.save(
@@ -226,7 +276,10 @@ def registrar_firmado(documento: Documento, archivo: File, usuario: User) -> Doc
         documento.firmado_en = timezone.now()
         documento.estado = Documento.Estado.FIRMADO
         documento.save()
-        documento.firmantes.update(firmado_en=documento.firmado_en)
+        documento.firmantes.filter(firmado_en__isnull=True).update(
+            firmado_en=documento.firmado_en,
+        )
+        documento.firmantes.update(estado=Firmante.Estado.FIRMADO)
         completar(tramite, usuario)
     return documento
 

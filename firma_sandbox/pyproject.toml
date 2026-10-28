@@ -1,0 +1,64 @@
+[project]
+name = "firma-sandbox"
+version = "0.1.0"
+description = "PSC de pruebas: firma electrónica avanzada sin validez legal, solo para desarrollo y pruebas"
+readme = "README.md"
+license = { text = "Not open source" }
+authors = [
+  { name = "Equipo CRM Easy Office", email = "equipo-crm-easy-office@example.com" },
+]
+requires-python = "==3.14.*"
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+  "cryptography==50.0.1",
+  "django==6.0.8",
+  "django-environ==0.14",
+  "djangorestframework==3.18.1",
+  "drf-spectacular==0.30",
+  "httpx==0.28.1",
+  "pyhanko==0.37",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "pytest-django==4.14",
+]
+
+[tool.uv]
+package = false
+
+[tool.djlint]
+profile = "django"
+include = "H017,H035"
+indent = 2
+max_line_length = 119
+blank_line_after_tag = "load,extends"
+close_void_tags = true
+format_css = true
+format_js = true
+custom_blocks = "element,slot"
+ignore = "H006,H030,H031"
+css.indent_size = 2
+js.indent_size = 2
+
+[tool.ruff]
+extend = "../pyproject.toml"
+lint.flake8-tidy-imports.banned-api.config.msg = "The sandbox shares no code with the CRM: talk to it over HTTP."
+lint.flake8-tidy-imports.banned-api.crm_easyoffice.msg = """\
+  The sandbox shares no code with the CRM: talk to it over HTTP.\
+  """
+
+[tool.pytest]
+addopts = [
+  "--ds=sandbox.settings",
+  "--import-mode=importlib",
+]
+minversion = "9.0"
+python_files = [
+  "test_*.py",
+]
+testpaths = [ "tests" ]

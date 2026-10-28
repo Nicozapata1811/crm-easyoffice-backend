@@ -24,6 +24,7 @@ from crm_easyoffice.configuracion.models import Marca
 from crm_easyoffice.core.auditoria.contexto import AplicadorContexto
 from crm_easyoffice.core.auditoria.contexto import Contexto
 from crm_easyoffice.core.auditoria.contexto import contexto_auditoria
+from crm_easyoffice.core.auditoria.contexto import origen_de
 from crm_easyoffice.core.middleware import AuditoriaMiddleware
 from crm_easyoffice.core.models import RegistroAuditoria
 from crm_easyoffice.tramites.tests.factories import cuenta_empresa
@@ -277,3 +278,19 @@ class TestConexionReutilizada:
 
         assert en_conexion_propia(sin_transaccion) == [None]
         assert fijaciones == []
+
+
+@pytest.mark.parametrize(
+    ("ruta", "origen"),
+    [
+        ("/admin/clientes/persona/1/change/", Origen.ADMIN),
+        ("/api/portal/tramites/", Origen.PORTAL),
+        ("/api/pagos/webhooks/klap/confirmacion/", Origen.SISTEMA),
+        ("/api/firma/webhooks/sandbox/", Origen.SISTEMA),
+        ("/api/clientes/", Origen.API),
+    ],
+)
+def test_the_channel_comes_from_the_route(ruta, origen):
+    request = peticion(usuario_en_sesion(41), ruta)
+
+    assert origen_de(request, request.user) == origen

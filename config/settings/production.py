@@ -1,4 +1,6 @@
 # ruff: noqa: E501
+from crm_easyoffice.integrations.signature.registry import exigir_proveedor_real
+
 from .base import *  # noqa: F403
 from .base import DATABASES
 from .base import REDIS_URL
@@ -152,3 +154,5 @@ SPECTACULAR_SETTINGS["SERVERS"] = [
 ]
 # Your stuff...
 # ------------------------------------------------------------------------------
+# The test PSC has no legal validity: production refuses its address.
+exigir_proveedor_real(SIGNATURE_PROVIDER, SIGNATURE_API_BASE_URL)  # noqa: F405

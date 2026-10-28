@@ -1,0 +1,23 @@
+{% extends "psc/base.html" %}
+
+{% block title %}
+  Verificar firma
+{% endblock title %}
+{% block content %}
+  <div class="tarjeta">
+    <h1>Código {{ codigo }}</h1>
+    {% if firmante %}
+      <p class="ok">Firma encontrada: {{ firmante.nombre }}, el {{ firmante.firmado_en|date:"d-m-Y H:i" }}.</p>
+      <p>Documento: {{ firmante.solicitud.nombre_documento }}.</p>
+      <p>
+        {% if completada %}
+          La solicitud está completada.
+        {% else %}
+          La solicitud aún no está completada.
+        {% endif %}
+      </p>
+    {% else %}
+      <p class="error">No hay ninguna firma con este código.</p>
+    {% endif %}
+  </div>
+{% endblock content %}
