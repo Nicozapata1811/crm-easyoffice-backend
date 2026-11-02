@@ -11,7 +11,7 @@ from sandbox.guard import exigir_ambiente_de_pruebas
 RAIZ = Path(__file__).resolve().parent.parent
 
 
-@pytest.mark.parametrize("ambiente", ["local", "test", "ci"])
+@pytest.mark.parametrize("ambiente", ["local", "test", "ci", "staging"])
 def test_development_environments_start(ambiente):
     assert (
         exigir_ambiente_de_pruebas(
@@ -28,7 +28,11 @@ def test_development_environments_start(ambiente):
         {"FIRMA_SANDBOX_ENABLED": "false", "FIRMA_SANDBOX_ENV": "local"},
         {"FIRMA_SANDBOX_ENABLED": "true"},
         {"FIRMA_SANDBOX_ENABLED": "true", "FIRMA_SANDBOX_ENV": "production"},
-        {"FIRMA_SANDBOX_ENABLED": "true", "FIRMA_SANDBOX_ENV": "staging"},
+        {
+            "FIRMA_SANDBOX_ENABLED": "true",
+            "FIRMA_SANDBOX_ENV": "staging",
+            "DJANGO_SETTINGS_MODULE": "config.settings.production",
+        },
         {
             "FIRMA_SANDBOX_ENABLED": "true",
             "FIRMA_SANDBOX_ENV": "local",
@@ -82,3 +86,37 @@ def test_the_service_does_not_start_with_debug_off_outside_ci():
     )
     assert resultado.returncode != 0
     assert "DEBUG" in resultado.stderr
+
+
+def test_staging_starts_with_debug_off_and_allows_its_public_host():
+    codigo = (
+        "from django.conf import settings; "
+        "print(settings.DEBUG, settings.ALLOWED_HOSTS, settings.CSRF_TRUSTED_ORIGINS, "
+        "settings.SECURE_PROXY_SSL_HEADER)"
+    )
+    variables = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("FIRMA_SANDBOX", "DJANGO_"))
+    }
+    resultado = subprocess.run(  # noqa: S603 - our own code, in a test
+        [sys.executable, "-c", codigo],
+        cwd=RAIZ,
+        env={
+            **variables,
+            "DJANGO_SETTINGS_MODULE": "sandbox.settings",
+            "FIRMA_SANDBOX_ENABLED": "true",
+            "FIRMA_SANDBOX_ENV": "staging",
+            "FIRMA_SANDBOX_DEBUG": "false",
+            "FIRMA_SANDBOX_KEY_PASSPHRASE": "x",
+            "FIRMA_SANDBOX_PUBLIC_URL": "https://firma.staging.example.test",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert resultado.returncode == 0, resultado.stderr
+    assert resultado.stdout.startswith("False")
+    assert "'firma.staging.example.test'" in resultado.stdout
+    assert "'https://firma.staging.example.test'" in resultado.stdout
+    assert "HTTP_X_FORWARDED_PROTO" in resultado.stdout

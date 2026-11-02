@@ -1,4 +1,4 @@
-"""The sandbox's start guard: it never runs outside development and tests.
+"""The sandbox's start guard: it never runs outside development, tests and staging.
 
 The signatures this service produces have no legal validity (Ley 19.799):
 only an accredited provider can certify an advanced electronic signature.
@@ -15,7 +15,7 @@ from django.core.exceptions import ImproperlyConfigured
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-AMBIENTES_PERMITIDOS = frozenset({"local", "test", "ci"})
+AMBIENTES_PERMITIDOS = frozenset({"local", "test", "ci", "staging"})
 VERDADERO = frozenset({"1", "true", "yes", "on"})
 
 
@@ -23,13 +23,13 @@ def exigir_ambiente_de_pruebas(entorno: Mapping[str, str]) -> str:
     """Return the environment name, or refuse to start.
 
     Raises:
-        ImproperlyConfigured: The development flag is missing, the
-            environment is not a development one, or the CRM's production
-            settings are active in this process.
+        ImproperlyConfigured: The flag is missing, the environment is not an
+            allowed one, or the CRM's production settings are active in this
+            process.
     """
     if entorno.get("FIRMA_SANDBOX_ENABLED", "").strip().lower() not in VERDADERO:
         msg = (
-            "The test signature service is off. It runs only in development: set "
+            "The test signature service is off. It never runs in production: set "
             "FIRMA_SANDBOX_ENABLED=true (see .envs.example/.local/.firma)."
         )
         raise ImproperlyConfigured(msg)

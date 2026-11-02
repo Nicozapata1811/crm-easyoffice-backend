@@ -4,9 +4,10 @@
 > prestador de servicios de certificación **ficticio**, hecho para desarrollo,
 > pruebas y demostraciones de CRM Easy Office. Una firma electrónica avanzada
 > solo tiene validez legal si la certifica un prestador acreditado (Ley
-> 19.799). Nada de lo que firma este servicio la tiene. Nunca se despliega en
-> producción: se niega a iniciar fuera de desarrollo, y la configuración de
-> producción del CRM rechaza su dirección.
+> 19.799). Nada de lo que firma este servicio la tiene. Corre en local y en
+> staging (`docs/staging.md`), nunca en producción: no está en
+> `docker-compose.production.yml`, se niega a iniciar con configuración de
+> producción, y la configuración de producción del CRM rechaza su dirección.
 
 No imita a ningún proveedor real: su nombre, su API y sus formatos son
 propios.

@@ -1,7 +1,8 @@
-"""Settings of the test PSC (PSC de pruebas). Development and tests only."""
+"""Settings of the test PSC (PSC de pruebas). Never production."""
 
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import environ
 from django.core.exceptions import ImproperlyConfigured
@@ -14,8 +15,8 @@ env = environ.Env()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DEBUG = env.bool("FIRMA_SANDBOX_DEBUG", default=True)
-if not DEBUG and AMBIENTE != "ci":
-    msg = "The test signature service runs with DEBUG on outside CI."
+if not DEBUG and AMBIENTE not in {"ci", "staging"}:
+    msg = "The test signature service runs with DEBUG on outside CI and staging."
     raise ImproperlyConfigured(msg)
 
 SECRET_KEY = env(
@@ -125,6 +126,11 @@ if not KEY_PASSPHRASE:
 PUBLIC_URL = env("FIRMA_SANDBOX_PUBLIC_URL", default="http://localhost:8100").rstrip(
     "/",
 )
+ALLOWED_HOSTS.append(urlsplit(PUBLIC_URL).hostname)
+CSRF_TRUSTED_ORIGINS = [PUBLIC_URL]
+if AMBIENTE == "staging":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    CSRF_COOKIE_SECURE = True
 # Hosts allowed to reach /api/: the compose network only.
 API_HOSTS = env.list("FIRMA_SANDBOX_API_HOSTS", default=["firma-sandbox", "testserver"])
 
