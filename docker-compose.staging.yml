@@ -151,7 +151,7 @@ services:
     command: /start-worker
 
   mailpit:
-    image: docker.io/axllent/mailpit:v1.28
+    image: docker.io/axllent/mailpit:v1.32
     restart: unless-stopped
     logging: *logging
     mem_limit: 128m
