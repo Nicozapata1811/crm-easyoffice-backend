@@ -1,0 +1,193 @@
+name: crm_easyoffice_staging
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+x-django: &django
+  image: crm_easyoffice_staging_django
+  restart: unless-stopped
+  logging: *logging
+  mem_limit: 640m
+  volumes:
+    - staging_django_media:/app/crm_easyoffice/media
+    - staging_django_private_media:/app/private_media
+  env_file:
+    - ./.envs/.staging/.django
+    - ./.envs/.staging/.postgres
+    - ./.envs/.staging/.firma
+
+x-firma-sandbox: &firma-sandbox
+  image: crm_easyoffice_staging_firma_sandbox
+  restart: unless-stopped
+  logging: *logging
+  volumes:
+    - staging_firma_sandbox_data:/data
+  environment:
+    FIRMA_SANDBOX_DATA_DIR: /data
+    FIRMA_SANDBOX_PKI_DIR: /data/pki
+  env_file:
+    - ./.envs/.staging/.firma
+
+volumes:
+  staging_postgres_data: {}
+  staging_postgres_data_backups: {}
+  staging_traefik: {}
+  staging_django_media: {}
+  # Identity cards and generated documents. Never mounted on nginx.
+  staging_django_private_media: {}
+  staging_redis_data: {}
+  staging_firma_sandbox_data: {}
+
+services:
+  django:
+    <<: *django
+    build:
+      context: .
+      dockerfile: ./compose/production/django/Dockerfile
+    depends_on:
+      - postgres
+      - redis
+      - mailpit
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://django:5000/api/auth/csrf/', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    command: /start
+
+  celeryworker:
+    <<: *django
+    depends_on:
+      - postgres
+      - redis
+      - mailpit
+      - gotenberg
+    command: /start-celeryworker
+
+  celerybeat:
+    <<: *django
+    mem_limit: 256m
+    depends_on:
+      - postgres
+      - redis
+    command: /start-celerybeat
+
+  postgres:
+    build:
+      context: .
+      dockerfile: ./compose/production/postgres/Dockerfile
+    image: crm_easyoffice_staging_postgres
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 768m
+    mem_reservation: 384m
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+      - staging_postgres_data_backups:/backups
+    env_file:
+      - ./.envs/.staging/.postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: docker.io/redis:7.2
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 128m
+    volumes:
+      - staging_redis_data:/data
+
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:8.37.0-libreoffice
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 1g
+
+  frontend:
+    build:
+      context: ${FRONTEND_DIR:-../crm-easyoffice-frontend}
+      dockerfile: Dockerfile.nginx
+    image: crm_easyoffice_staging_frontend
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # The test PSC: signatures with no legal validity. It is never in
+  # docker-compose.production.yml. Its API answers only on this network.
+  firma-sandbox:
+    <<: *firma-sandbox
+    build:
+      context: .
+      dockerfile: ./compose/local/firma_sandbox/Dockerfile
+    mem_limit: 384m
+    depends_on:
+      - mailpit
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/pki/raiz.crt', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    command: /start
+
+  firma-sandbox-worker:
+    <<: *firma-sandbox
+    mem_limit: 256m
+    depends_on:
+      firma-sandbox:
+        condition: service_healthy
+    command: /start-worker
+
+  mailpit:
+    image: docker.io/axllent/mailpit:v1.28
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 128m
+
+  nginx:
+    build:
+      context: .
+      dockerfile: ./compose/production/nginx/Dockerfile
+    image: crm_easyoffice_staging_nginx
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 64m
+    depends_on:
+      - django
+    volumes:
+      - staging_django_media:/usr/share/nginx/media:ro
+
+  traefik:
+    build:
+      context: .
+      dockerfile: ./compose/staging/traefik/Dockerfile
+    image: crm_easyoffice_staging_traefik
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 128m
+    depends_on:
+      - django
+      - frontend
+      - firma-sandbox
+      - mailpit
+      - nginx
+    env_file:
+      - ./.envs/.staging/.traefik
+    volumes:
+      - staging_traefik:/etc/traefik/acme
+      - ./.envs/.staging/.basic-auth:/etc/traefik/basic-auth:ro
+    ports:
+      - '0.0.0.0:80:80'
+      - '0.0.0.0:443:443'

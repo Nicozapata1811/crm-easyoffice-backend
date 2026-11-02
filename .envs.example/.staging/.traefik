@@ -1,0 +1,6 @@
+# Staging template. See the note in .staging/.django.
+
+# The app's host; firma.<host> and correo.<host> come from it.
+STAGING_HOST=<ip-con-guiones>.sslip.io
+# Let's Encrypt refuses example.com addresses. Use a mailbox the team reads.
+STAGING_ACME_EMAIL=CHANGEME

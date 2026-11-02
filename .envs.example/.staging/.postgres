@@ -1,0 +1,9 @@
+# Staging template. See the note in .staging/.django.
+
+# PostgreSQL
+# ------------------------------------------------------------------------------
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=crm_easyoffice
+POSTGRES_USER=crm_staging
+POSTGRES_PASSWORD=CHANGEME
