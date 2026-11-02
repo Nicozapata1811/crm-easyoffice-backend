@@ -1,0 +1,41 @@
+log:
+  level: INFO
+
+accessLog: {}
+
+entryPoints:
+  web:
+    address: ':80'
+    http:
+      middlewares:
+        - noindex@file
+      redirections:
+        entryPoint:
+          to: web-secure
+
+  web-secure:
+    address: ':443'
+    http:
+      middlewares:
+        - noindex@file
+      # One certificate for the three hosts: sslip.io shares Let's Encrypt's
+      # weekly limit among everyone who uses it.
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: '__STAGING_HOST__'
+            sans:
+              - 'firma.__STAGING_HOST__'
+              - 'correo.__STAGING_HOST__'
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: '__STAGING_ACME_EMAIL__'
+      storage: /etc/traefik/acme/acme.json
+      httpChallenge:
+        entryPoint: web
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml

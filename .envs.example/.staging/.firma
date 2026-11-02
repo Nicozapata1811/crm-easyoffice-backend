@@ -1,0 +1,21 @@
+# Staging template. The test PSC (firma-sandbox) and the CRM read this file. Its
+# signatures have no legal validity (Ley 19.799).
+
+# The CRM. Do not add SIGNATURE_PROVIDER or SIGNATURE_API_BASE_URL here: the
+# settings refuse the PSC under those names (config/settings/staging.py).
+# ------------------------------------------------------------------------------
+SIGNATURE_API_KEY=CHANGEME
+SIGNATURE_WEBHOOK_SECRET=CHANGEME
+SIGNATURE_WEBHOOK_BASE_URL=http://django:5000
+
+# The test PSC
+# ------------------------------------------------------------------------------
+FIRMA_SANDBOX_ENABLED=true
+FIRMA_SANDBOX_ENV=staging
+FIRMA_SANDBOX_DEBUG=false
+FIRMA_SANDBOX_RUNSERVER_OPTS=--noreload
+FIRMA_SANDBOX_SECRET_KEY=CHANGEME
+# Encrypts the test CA, TSA and signer keys at rest.
+FIRMA_SANDBOX_KEY_PASSPHRASE=CHANGEME
+# Goes into signing links and into the certificates' OCSP and CRL addresses.
+FIRMA_SANDBOX_PUBLIC_URL=https://firma.<ip-con-guiones>.sslip.io

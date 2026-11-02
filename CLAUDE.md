@@ -159,16 +159,20 @@ class PaymentProvider(ABC): ...
     copy with another mapping, URL and key. Tests use the simulated provider.
   - **The test PSC (`firma_sandbox/`).** A separate Django project, standing
     in for an external provider; not a CRM microservice. It has its own
-    `pyproject.toml`/`uv.lock`, SQLite, compose services (local only, started
-    with the rest of the stack) and tests (`just firma-pytest`), and shares no
+    `pyproject.toml`/`uv.lock`, SQLite, compose services (local and staging,
+    started with the rest of the stack) and tests (`just firma-pytest`), and shares no
     tables or imports with the CRM (ruff `banned-api` both ways, plus a test).
     - **What it does:** a test CA, TSA, CRL and OCSP; an identity check
       against a fictitious registry; single-use certificates; OTP by email;
       PAdES B-LT per signer, B-LTA at the end; HMAC webhooks with retries.
     - **No legal validity**, and never in production:
-      - the service refuses to start outside development;
-      - `production.py` refuses its URL (`exigir_proveedor_real`);
-      - `SIGNATURE_ALLOW_SANDBOX` is true only in local and test settings.
+      - `docker-compose.production.yml` has no PSC service;
+      - the service refuses to start with production configuration, or outside
+        `local`, `test`, `ci` and `staging`;
+      - `production.py` refuses its URL (`exigir_proveedor_real`). `staging.py`
+        inherits it, so it reads the PSC's address from
+        `STAGING_SIGNATURE_PROVIDER` and `STAGING_SIGNATURE_API_BASE_URL`;
+      - `SIGNATURE_ALLOW_SANDBOX` is true only in local, test and staging settings.
     - **Docs.** Its API is documented as a provider's in `firma_sandbox/README.md`.
   - **Flow** (`documentos/firma.py`):
     1. Entering (pendiente, firma) sends `tramites.signals.firma_requerida`.
@@ -410,7 +414,7 @@ Tests use the simulated converter.
     (a case and its dated history), `ventas.tests.factories.venta_pagada`
     and `documentos.tests.factories.documento_generado` (a row on the seeded
     PLT-01 v1, no file rendered). A query-count test keeps the dashboard at
-    a fixed number of queries. The whole suite has 684 tests (firma_sandbox/ has its own 62).
+    a fixed number of queries. The whole suite has 715 tests (firma_sandbox/ has its own 64).
 
 - **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
   `precio_confirmado=False`), `CicloPago` (único … anual, HU-23), `Venta`,
@@ -544,6 +548,29 @@ Tests use the simulated converter.
     executive uploads the signed PDF (assisted signature) at
     `POST /api/tramites/{id}/documentos/{doc}/firmado/subir/`
     (`documentos.subir_documento_firmado`; PDF by content, 10 MB).
+
+---
+
+## Staging
+
+`docs/staging.md` is the step-by-step guide, in Spanish. `docker-compose.staging.yml`
+and `config/settings/staging.py` are production plus the test PSC and Mailpit, behind
+one Traefik `basicAuth` user, on `<ip-con-guiones>.sslip.io`. Real hosts and secrets
+live only in `.envs/.staging/`; `compose/staging/traefik/start` renders them into
+Traefik's configuration.
+
+- **Open paths.** Only the payment callbacks skip the password
+  (`compose/staging/traefik/dynamic.yml`). Each keeps its own verification.
+- **Deploy.** Each merge to `main` that passes CI runs `scripts/staging/deploy.sh`
+  over SSH. It rolls back images and code when a health check fails, but never
+  migrations. GitHub's concurrency groups do not cross repositories, so its `flock`
+  is what keeps the two repos' deploys apart.
+- **Copy of the local database.** `scripts/staging/copy_local_db.sh`, by hand, never
+  in a deploy. `anonimizar_datos` (`migracion/anonimizacion.py`) runs only on the
+  throwaway `crm_copia` database, then searches every table for the original values.
+  **A new text or JSON field on a model must be added to `ANONIMIZADOS` or
+  `CONSERVADOS`**; a test fails until it is.
+- **Demo users.** `seed_demo_usuarios --force`, with passwords from `.envs/.staging/`.
 
 ---
 

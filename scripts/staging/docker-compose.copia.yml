@@ -1,0 +1,40 @@
+# The throwaway copy that copy_local_db.sh anonymizes: its own project, database
+# and storage. It runs the code built into the image and mounts nothing from this
+# machine, so it cannot reach the local database or the local private files.
+name: crm_copia
+
+volumes:
+  copia_private_media: {}
+
+services:
+  postgres-copia:
+    image: crm_easyoffice_production_postgres
+    environment:
+      POSTGRES_DB: crm_copia
+      POSTGRES_USER: copia
+      POSTGRES_PASSWORD: copia
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copia -d crm_copia"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  anonimizador:
+    image: crm_easyoffice_local_django
+    depends_on:
+      postgres-copia:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.local
+      USE_DOCKER: 'yes'
+      POSTGRES_HOST: postgres-copia
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: crm_copia
+      POSTGRES_USER: copia
+      POSTGRES_PASSWORD: copia
+      REDIS_URL: redis://sin-redis:6379/0
+      DJANGO_PRIVATE_MEDIA_ROOT: /copia/private_media
+    volumes:
+      - copia_private_media:/copia
