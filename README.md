@@ -615,9 +615,10 @@ automáticas.
 ### Firma avanzada con el PSC de pruebas en local
 
 > El PSC de pruebas es un prestador **ficticio**: sus firmas no tienen validez
-> legal (Ley 19.799). Solo existe en `docker-compose.local.yml` y se niega a
-> iniciar fuera de desarrollo. La firma legal queda con un prestador acreditado
-> (tufirma.digital, RN-21), cuando lleguen sus credenciales (TA-07).
+> legal (Ley 19.799). Corre en local y en staging, nunca en producción: no está
+> en `docker-compose.production.yml` y se niega a iniciar con configuración de
+> producción. La firma legal queda con un prestador acreditado (tufirma.digital,
+> RN-21), cuando lleguen sus credenciales (TA-07).
 
 Cada tipo de trámite dice cómo se firma en `configuracion["firma"]`:
 
@@ -676,6 +677,15 @@ Las tres acciones responden `202`: el proveedor se llama en Celery.
 
 ---
 
+## Ambiente de staging
+
+Staging corre en internet todo lo que funciona en local, solo con datos ficticios:
+portal y backoffice, Klap y Flow en sandbox, firma avanzada con el PSC de pruebas y
+Mailpit. Cada merge a `main` que pasa la CI se despliega solo. La guía completa,
+paso a paso, está en [`docs/staging.md`](docs/staging.md).
+
+---
+
 ## Estado actual
 
 Sprint 2 (6 – 17 de octubre de 2026). Ya están:
@@ -690,7 +700,8 @@ Sprint 2 (6 – 17 de octubre de 2026). Ya están:
 - el domicilio tributario de punta a punta (PLT-01) y el contrato de bodega
   (PLT-02), iniciado desde el backoffice;
 - la firma electrónica avanzada a través de un proveedor, probada contra un
-  PSC de pruebas propio y sin validez legal (IN-01).
+  PSC de pruebas propio y sin validez legal (IN-01);
+- un ambiente de staging con despliegue automático ([guía](docs/staging.md)).
 
 Siguen pendientes los campos definitivos del cliente, los estados de los
 trámites, las plantillas reales, la confirmación del
