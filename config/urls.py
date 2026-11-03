@@ -7,9 +7,8 @@ from django.views import defaults as default_views
 from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView
 from drf_spectacular.views import SpectacularSwaggerView
-from rest_framework.authtoken.views import ObtainAuthToken
 
-from crm_easyoffice.core.throttling import IngresoThrottle
+from crm_easyoffice.users.api.auth_views import TokenView
 
 urlpatterns = [
     path("", TemplateView.as_view(template_name="pages/home.html"), name="home"),
@@ -42,11 +41,7 @@ urlpatterns += [
     path("api/pagos/", include("crm_easyoffice.ventas.api.webhook_urls")),
     path("api/firma/", include("crm_easyoffice.documentos.api.webhook_urls")),
     # DRF auth token
-    path(
-        "api/auth-token/",
-        ObtainAuthToken.as_view(throttle_classes=[IngresoThrottle]),
-        name="obtain_auth_token",
-    ),
+    path("api/auth-token/", TokenView.as_view(), name="obtain_auth_token"),
     path("api/schema/", SpectacularAPIView.as_view(), name="api-schema"),
     path(
         "api/docs/",

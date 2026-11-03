@@ -563,10 +563,12 @@ lista de tablas auditadas, las excluidas y los campos que nunca se guardan
 viven en un solo lugar, `crm_easyoffice/core/auditoria/registro.py`: nunca se
 guardan `last_login`, `Pago.respuesta`, `OrdenPago.redirect_url` ni
 `Documento.datos_snapshot`; la contraseña aparece como `***`, nunca su hash; los
-archivos, solo por su nombre. Los roles y permisos se registran por nombre
-(`{"rol": "Ejecutivo"}`). Además, `core.auditoria.registrar_evento` registra lo
-que no cambia filas: ingreso, cierre de sesión e intento fallido (personal,
-portal, panel de administración), descarga de un documento del trámite, acceso
+archivos, solo por su nombre. Crear o eliminar un segundo factor (MFA) o un token
+de API también queda registrado, sin el secreto ni la clave del token. Los roles y
+permisos se registran por nombre (`{"rol": "Ejecutivo"}`). Además,
+`core.auditoria.registrar_evento` registra lo que no cambia filas: ingreso, cierre
+de sesión e intento fallido (personal, portal, panel de administración,
+`/api/auth-token/`), descarga de un documento del trámite, acceso
 a la cédula del autorizante, y el reenvío, la cancelación o el reintento de una
 firma por un ejecutivo (el proveedor se llama en Celery, como `sistema`: esta
 fila dice quién lo pidió).

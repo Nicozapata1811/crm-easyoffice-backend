@@ -111,6 +111,36 @@ class TestInicioDeSesion:
         assert fallido.origen == inicio.origen == Origen.ADMIN
         assert inicio.usuario == usuario
 
+    def test_a_token_request_is_recorded_as_a_sign_in(self):
+        usuario = UserFactory.create(password=PASSWORD)
+
+        respuesta = Client().post(
+            reverse("obtain_auth_token"),
+            {"username": usuario.email, "password": PASSWORD},
+        )
+
+        assert respuesta.status_code == HTTPStatus.OK
+        evento = eventos(Accion.INICIO_SESION).last()
+        assert evento.usuario == usuario
+        assert evento.registro_id == usuario.pk
+        assert evento.origen == Origen.API
+        assert respuesta.json()["token"] not in str(evento.valor_nuevo)
+
+    def test_a_failed_token_request_survives_the_requests_rollback(self):
+        usuario = UserFactory.create(password=PASSWORD)
+
+        respuesta = Client().post(
+            reverse("obtain_auth_token"),
+            {"username": usuario.email, "password": WRONG_PASSWORD},
+        )
+
+        assert respuesta.status_code == HTTPStatus.BAD_REQUEST
+        assert "non_field_errors" in respuesta.json()
+        evento = eventos(Accion.INICIO_SESION_FALLIDO).last()
+        assert evento.usuario is None
+        assert evento.registro_id == usuario.pk
+        assert evento.valor_nuevo == {"email": usuario.email}
+
 
 class TestRegistrarEvento:
     def test_without_a_request_the_event_is_the_systems(self):

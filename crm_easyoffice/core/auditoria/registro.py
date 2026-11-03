@@ -87,6 +87,11 @@ AUDITADAS = (
     Auditada("ventas_pago", "ventas.pago", ("respuesta",)),
     Auditada("users_user", "users.user"),
     Auditada("auth_group", "auth.group"),
+    # Who gained or lost a second factor or an API token, never the secret: the
+    # token's key is its primary key, so its entries carry no registro_id and
+    # say whose it is in user_id. Using a factor records nothing.
+    Auditada("mfa_authenticator", "mfa.authenticator", ("data", "last_used_at")),
+    Auditada("authtoken_token", "authtoken.token", ("key",)),
 )
 
 RELACIONES = (
@@ -95,8 +100,8 @@ RELACIONES = (
     Relacion("auth_group_permissions", "auth.group", "group_id", "permiso"),
 )
 
-# Tables deliberately left out: logs of their own, counters, framework
-# state, or secrets.
+# Tables deliberately left out: logs of their own, counters, or framework
+# state.
 NO_AUDITADAS = (
     "core_registroauditoria",  # the log itself
     "tramites_eventotramite",  # append-only history of its own
@@ -110,8 +115,6 @@ NO_AUDITADAS = (
     "django_admin_log",
     "account_emailaddress",
     "account_emailconfirmation",
-    "mfa_authenticator",  # MFA secrets
-    "authtoken_token",  # API tokens
     "django_celery_beat_solarschedule",
     "django_celery_beat_intervalschedule",
     "django_celery_beat_clockedschedule",

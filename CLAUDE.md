@@ -253,7 +253,10 @@ Tests use the simulated converter.
 - Sign-ins, sign-outs and failed attempts (staff, portal, admin, allauth) are
   audited from Django's auth signals in `core.apps` (see "Audit log").
 - `/api/auth-token/` and `TokenAuthentication` come from cookiecutter and
-  conflict with AD-03. Removal is pending a team decision.
+  conflict with AD-03. Removal is pending a team decision. Until then
+  `users.api.auth_views.TokenView` audits it as a sign-in: it calls no
+  `login()`, and it answers a 400 instead of raising, which would roll back
+  the failed attempt's entry under `ATOMIC_REQUESTS`.
 - **Client portal accounts** (HU-03): `clientes.CuentaCliente` links a `User`
   to a `Cliente`. Clients register at `POST /api/portal/registro/`
   (`clientes.services.registrar_cuenta_cliente`) and then log in through the
@@ -417,7 +420,7 @@ Tests use the simulated converter.
     (a case and its dated history), `ventas.tests.factories.venta_pagada`
     and `documentos.tests.factories.documento_generado` (a row on the seeded
     PLT-01 v1, no file rendered). A query-count test keeps the dashboard at
-    a fixed number of queries. The whole suite has 793 tests (firma_sandbox/ has its own 64).
+    a fixed number of queries. The whole suite has 799 tests (firma_sandbox/ has its own 64).
 
 - **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
   `precio_confirmado=False`), `CicloPago` (único … anual, HU-23), `Venta`,
@@ -560,10 +563,14 @@ Tests use the simulated converter.
     (`AUDITADAS`; `RELACIONES` for role and permission rows, stored by name),
     what is left out on purpose (`NO_AUDITADAS`) and which fields are never
     stored (`EXCLUIDOS_GLOBAL`, per-table `excluir`; `password` is masked as
-    `***`). A test fails when a model is in neither list, and another when
-    the triggers in the database differ from the module. **A new model needs
-    an entry there and a core migration that installs its trigger**
-    (`core.auditoria.sql.crear_trigger`; see migrations 0004 to 0006).
+    `***`). MFA authenticators and API tokens are audited without their
+    secrets (core 0009), so a token's entries have no `registro_id`: its key
+    is its primary key. A test fails when a model is in neither list, another
+    when the triggers in the database differ from the module, and another when
+    an audited column looks like a secret (`token`, `secret`, `clave`…) and is
+    neither excluded nor masked. **A new model needs an entry there and a core
+    migration that installs its trigger** (`core.auditoria.sql.crear_trigger`;
+    see migrations 0004 to 0006).
   - Who, from where, which channel: the triggers read `app.usuario_id`,
     `app.ip` and `app.origen`, set with `set_config(..., true)` (`SET LOCAL`)
     by a per-connection `execute_wrapper` (`core.auditoria.contexto`) before

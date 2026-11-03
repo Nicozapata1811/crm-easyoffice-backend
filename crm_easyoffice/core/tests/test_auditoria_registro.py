@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from django.apps import apps
 from django.db import connection
@@ -10,6 +12,11 @@ from crm_easyoffice.core.auditoria import registro
 from crm_easyoffice.core.auditoria import sql
 
 pytestmark = pytest.mark.django_db
+
+SECRETO = re.compile(
+    r"token|secret|password|contrasena|clave|credencial|api_?key|^key$",
+    re.IGNORECASE,
+)
 
 
 def triggers_instalados() -> dict[str, tuple[str, tuple[str, ...]]]:
@@ -68,6 +75,24 @@ def test_every_table_is_either_audited_or_left_out_on_purpose():
 
     assert tablas - decididas == set(), "Decide in core.auditoria.registro"
     assert decididas - tablas == set(), "Stale entries in core.auditoria.registro"
+
+
+def test_no_audited_column_looks_like_a_secret():
+    """A new column is audited by default, and the log can never be cleaned."""
+    sospechosas = []
+    with connection.cursor() as cursor:
+        for auditada in registro.AUDITADAS:
+            revisadas = {*auditada.excluidos, *registro.ENMASCARADOS}
+            sospechosas += [
+                f"{auditada.tabla}.{columna.name}"
+                for columna in connection.introspection.get_table_description(
+                    cursor,
+                    auditada.tabla,
+                )
+                if columna.name not in revisadas and SECRETO.search(columna.name)
+            ]
+
+    assert sospechosas == [], "Exclude or mask them in core.auditoria.registro"
 
 
 def test_the_log_itself_is_protected():

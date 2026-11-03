@@ -6,12 +6,14 @@ Every name, RUT and value here is synthetic.
 from __future__ import annotations
 
 import pytest
+from allauth.mfa.models import Authenticator
 from django.contrib.auth.models import Group
 from django.contrib.auth.models import Permission
 from django.db import DatabaseError
 from django.db import connection
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.authtoken.models import Token
 
 from crm_easyoffice.clientes.models import Persona
 from crm_easyoffice.clientes.tests.factories import PersonaFactory
@@ -147,6 +149,53 @@ class TestNuncaSeGuardan:
 
         assert "redirect_url" not in ultima("ventas.ordenpago", orden.pk).valor_nuevo
         assert "respuesta" not in ultima("ventas.pago").valor_nuevo
+
+    def test_an_api_token_is_recorded_without_its_key(self):
+        usuario = UserFactory.create()
+        token = Token.objects.create(user=usuario)
+        clave = token.key
+        token.delete()
+
+        creacion, eliminacion = entradas("authtoken.token")
+        assert creacion.accion == Accion.CREAR
+        assert creacion.valor_nuevo["user_id"] == usuario.pk
+        assert eliminacion.accion == Accion.ELIMINAR
+        assert eliminacion.valor_anterior["user_id"] == usuario.pk
+        for texto in (str(creacion.valor_nuevo), str(eliminacion.valor_anterior)):
+            assert clave not in texto
+
+    def test_an_mfa_authenticator_is_recorded_without_its_secret(self):
+        usuario = UserFactory.create()
+        autenticador = Authenticator.objects.create(
+            user=usuario,
+            type=Authenticator.Type.TOTP,
+            data={"secret": "sintetico"},
+        )
+        pk = autenticador.pk
+
+        creacion = ultima("mfa.authenticator", pk)
+        assert creacion.valor_nuevo["user_id"] == usuario.pk
+        assert creacion.valor_nuevo["type"] == Authenticator.Type.TOTP
+        assert "sintetico" not in str(creacion.valor_nuevo)
+
+        autenticador.delete()
+
+        eliminacion = ultima("mfa.authenticator", pk)
+        assert eliminacion.accion == Accion.ELIMINAR
+        assert "sintetico" not in str(eliminacion.valor_anterior)
+
+    def test_using_an_mfa_authenticator_records_nothing(self):
+        autenticador = Authenticator.objects.create(
+            user=UserFactory.create(),
+            type=Authenticator.Type.RECOVERY_CODES,
+            data={"seed": "sintetico"},
+        )
+
+        autenticador.data = {"seed": "sintetico", "used_mask": 1}
+        autenticador.last_used_at = timezone.now()
+        autenticador.save()
+
+        assert entradas("mfa.authenticator", autenticador.pk).count() == 1
 
 
 class TestRoles:
