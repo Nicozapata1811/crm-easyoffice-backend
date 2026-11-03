@@ -256,8 +256,11 @@ class _FirmaAccionBase(APIView):
     in Celery; the answer is the document as it stands."""
 
     permission_classes = [PuedeGestionarFirma]
+    # The work runs in Celery, as the system: this entry says who asked for it.
+    evento = ""
 
-    def accion(self, request: Request, documento: Documento) -> None:
+    def accion(self, request: Request, documento: Documento) -> dict | None:
+        """Do it; return what the audit entry adds, if anything."""
         raise NotImplementedError
 
     @extend_schema(request=None, responses={202: DocumentoBackofficeSerializer})
@@ -265,12 +268,18 @@ class _FirmaAccionBase(APIView):
         tramite = get_object_or_404(Tramite, pk=tramite_id)
         documento = get_object_or_404(tramite.documentos, pk=pk)
         try:
-            self.accion(request, documento)
+            datos = self.accion(request, documento)
         except firma.FirmaNoGestionableError as error:
             return Response(
                 {"detail": str(error), "codigo": "firma_no_gestionable"},
                 status=status.HTTP_409_CONFLICT,
             )
+        registrar_evento(
+            self.evento,
+            entidad="documentos.documento",
+            registro_id=documento.pk,
+            datos=datos,
+        )
         return Response(
             DocumentoBackofficeSerializer(
                 _documentos(tramite).get(pk=documento.pk),
@@ -282,11 +291,13 @@ class _FirmaAccionBase(APIView):
 class ReenviarFirmaView(_FirmaAccionBase):
     """Send a pending signer a new signing link."""
 
+    evento = Accion.REENVIO_FIRMA
+
     @extend_schema(request=ReenviarFirmaSerializer)
     def post(self, request: Request, tramite_id: int, pk: int) -> Response:
         return super().post(request, tramite_id, pk)
 
-    def accion(self, request: Request, documento: Documento) -> None:
+    def accion(self, request: Request, documento: Documento) -> dict:
         datos = ReenviarFirmaSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
         solicitud_id, externo = firma.preparar_reenvio(
@@ -296,10 +307,13 @@ class ReenviarFirmaView(_FirmaAccionBase):
         transaction.on_commit(
             lambda: tasks.reenviar_enlace_firma.delay(solicitud_id, externo),
         )
+        return {"firmante": datos.validated_data["firmante"]}
 
 
 class CancelarFirmaView(_FirmaAccionBase):
     """Cancel the request at the provider; the case goes back to the executive."""
+
+    evento = Accion.CANCELACION_FIRMA
 
     def accion(self, request: Request, documento: Documento) -> None:
         solicitud_id = firma.preparar_cancelacion(documento)
@@ -311,6 +325,8 @@ class CancelarFirmaView(_FirmaAccionBase):
 
 class ReintentarFirmaView(_FirmaAccionBase):
     """Send again a request that failed."""
+
+    evento = Accion.REINTENTO_FIRMA
 
     def accion(self, request: Request, documento: Documento) -> None:
         tramite_id = firma.preparar_reintento(documento)

@@ -24,6 +24,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from crm_easyoffice.core.throttling import IngresoThrottle
+
 from .serializers import LoginSerializer
 from .serializers import SessionUserSerializer
 
@@ -54,6 +56,7 @@ class CsrfView(APIView):
 @method_decorator(csrf_protect, name="dispatch")
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [IngresoThrottle]
 
     @extend_schema(request=LoginSerializer, responses=SessionUserSerializer)
     def post(self, request: Request) -> Response:

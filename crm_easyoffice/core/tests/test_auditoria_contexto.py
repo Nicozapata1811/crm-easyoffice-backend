@@ -24,6 +24,7 @@ from crm_easyoffice.configuracion.models import Marca
 from crm_easyoffice.core.auditoria.contexto import AplicadorContexto
 from crm_easyoffice.core.auditoria.contexto import Contexto
 from crm_easyoffice.core.auditoria.contexto import contexto_auditoria
+from crm_easyoffice.core.auditoria.contexto import ip_de
 from crm_easyoffice.core.auditoria.contexto import origen_de
 from crm_easyoffice.core.middleware import AuditoriaMiddleware
 from crm_easyoffice.core.models import RegistroAuditoria
@@ -294,3 +295,37 @@ def test_the_channel_comes_from_the_route(ruta, origen):
     request = peticion(usuario_en_sesion(41), ruta)
 
     assert origen_de(request, request.user) == origen
+
+
+class TestDireccionIP:
+    @staticmethod
+    def _peticion(forwarded: str) -> HttpRequest:
+        return RequestFactory().get(
+            "/api/clientes/",
+            REMOTE_ADDR="172.18.0.5",
+            HTTP_X_FORWARDED_FOR=forwarded,
+        )
+
+    @staticmethod
+    def _con_proxies(settings, cantidad: int) -> None:
+        settings.REST_FRAMEWORK = {**settings.REST_FRAMEWORK, "NUM_PROXIES": cantidad}
+
+    def test_without_a_proxy_the_header_is_ignored(self, settings):
+        self._con_proxies(settings, 0)
+
+        assert ip_de(self._peticion("203.0.113.7")) == "172.18.0.5"
+
+    def test_behind_the_proxy_the_address_is_the_client(self, settings):
+        self._con_proxies(settings, 1)
+
+        assert ip_de(self._peticion("203.0.113.7")) == "203.0.113.7"
+
+    def test_a_client_cannot_choose_the_address_it_logs(self, settings):
+        self._con_proxies(settings, 1)
+
+        assert ip_de(self._peticion("198.51.100.1, 203.0.113.7")) == "203.0.113.7"
+
+    def test_something_that_is_not_an_address_is_not_stored(self, settings):
+        self._con_proxies(settings, 1)
+
+        assert ip_de(self._peticion("no-es-una-ip")) is None

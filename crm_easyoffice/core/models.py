@@ -71,6 +71,9 @@ class RegistroAuditoria(models.Model):
             "acceso_documento_identidad",
             _("Acceso a documento de identidad"),
         )
+        REENVIO_FIRMA = "reenvio_firma", _("Reenvío del enlace de firma")
+        CANCELACION_FIRMA = "cancelacion_firma", _("Cancelación de la firma")
+        REINTENTO_FIRMA = "reintento_firma", _("Reintento de la firma")
 
     fecha_hora = models.DateTimeField(_("fecha y hora"), db_default=Now())
     # PROTECT: a user who acted is deactivated, never deleted.

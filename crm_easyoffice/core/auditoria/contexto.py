@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 from typing import Any
 
 from django.conf import settings
+from rest_framework.throttling import BaseThrottle
 
 from crm_easyoffice.core.models import RegistroAuditoria
 
@@ -120,10 +121,9 @@ def contexto_auditoria(contexto: Contexto) -> Iterator[Contexto]:
 
 
 def ip_de(request: HttpRequest) -> str | None:
-    # ASSUMPTION: pending validation with Easy Office. Behind the production
-    # proxy the client address may arrive in X-Forwarded-For; which header to
-    # trust depends on the hosting, still undecided (TA-09).
-    direccion = request.META.get("REMOTE_ADDR", "")
+    # The same address throttling trusts: X-Forwarded-For only as far as
+    # REST_FRAMEWORK["NUM_PROXIES"] says, so a client cannot choose what is logged.
+    direccion = BaseThrottle().get_ident(request)
     try:
         return str(ipaddress.ip_address(direccion))
     except ValueError:

@@ -14,6 +14,7 @@ from django.urls import reverse
 from crm_easyoffice.clientes.tests.factories import CuentaClienteFactory
 from crm_easyoffice.core.auditoria.eventos import registrar_evento
 from crm_easyoffice.core.models import RegistroAuditoria
+from crm_easyoffice.core.throttling import IngresoThrottle
 from crm_easyoffice.users.tests.factories import UserFactory
 
 pytestmark = pytest.mark.django_db
@@ -123,3 +124,80 @@ class TestRegistrarEvento:
         assert evento.origen == Origen.SISTEMA
         assert evento.usuario is None
         assert evento.valor_nuevo == {"archivo": "pdf"}
+
+
+class TestLimiteDeIntentos:
+    """Failed sign-ins are permanent rows, so a client cannot write them at will."""
+
+    @pytest.fixture(autouse=True)
+    def _pocos_intentos(self, monkeypatch):
+        monkeypatch.setitem(IngresoThrottle.THROTTLE_RATES, "login", "3/min")
+
+    def test_the_api_login_stops_answering_and_recording(self):
+        browser = Client()
+
+        respuestas = [
+            web_login(browser, "nadie@example.test", WRONG_PASSWORD).status_code
+            for _ in range(5)
+        ]
+
+        assert (
+            respuestas
+            == [HTTPStatus.BAD_REQUEST] * 3
+            + [
+                HTTPStatus.TOO_MANY_REQUESTS,
+            ]
+            * 2
+        )
+        assert eventos(Accion.INICIO_SESION_FALLIDO).count() == 3  # noqa: PLR2004
+
+    def test_the_admin_login_stops_answering_and_recording(self):
+        browser = Client()
+        credenciales = {"username": "nadie@example.test", "password": WRONG_PASSWORD}
+
+        respuestas = [
+            browser.post(reverse("admin:login"), credenciales).status_code
+            for _ in range(5)
+        ]
+
+        assert respuestas == [HTTPStatus.OK] * 3 + [HTTPStatus.TOO_MANY_REQUESTS] * 2
+        assert eventos(Accion.INICIO_SESION_FALLIDO).count() == 3  # noqa: PLR2004
+
+    def test_the_token_endpoint_shares_the_limit(self):
+        browser = Client()
+        for _ in range(3):
+            web_login(browser, "nadie@example.test", WRONG_PASSWORD)
+
+        respuesta = browser.post(
+            reverse("obtain_auth_token"),
+            {"username": "nadie@example.test", "password": WRONG_PASSWORD},
+        )
+
+        assert respuesta.status_code == HTTPStatus.TOO_MANY_REQUESTS
+
+    def test_the_limit_is_per_client_address(self):
+        browser = Client()
+        for _ in range(3):
+            web_login(browser, "nadie@example.test", WRONG_PASSWORD)
+
+        otra = Client(REMOTE_ADDR="192.0.2.20")
+
+        assert web_login(otra, "nadie@example.test", WRONG_PASSWORD).status_code == (
+            HTTPStatus.BAD_REQUEST
+        )
+
+    def test_a_spoofed_forwarded_address_does_not_escape_the_limit(self):
+        for numero in range(3):
+            Client(HTTP_X_FORWARDED_FOR=f"203.0.113.{numero}").post(
+                reverse("auth:login"),
+                {"email": "nadie@example.test", "password": WRONG_PASSWORD},
+                content_type="application/json",
+            )
+
+        respuesta = Client(HTTP_X_FORWARDED_FOR="203.0.113.9").post(
+            reverse("auth:login"),
+            {"email": "nadie@example.test", "password": WRONG_PASSWORD},
+            content_type="application/json",
+        )
+
+        assert respuesta.status_code == HTTPStatus.TOO_MANY_REQUESTS

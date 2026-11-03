@@ -4,6 +4,7 @@ from crm_easyoffice.integrations.signature.registry import exigir_proveedor_real
 from .base import *  # noqa: F403
 from .base import DATABASES
 from .base import REDIS_URL
+from .base import REST_FRAMEWORK
 from .base import SPECTACULAR_SETTINGS
 from .base import env
 
@@ -17,6 +18,13 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["example.com"])
 # DATABASES
 # ------------------------------------------------------------------------------
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
+
+# REST FRAMEWORK
+# ------------------------------------------------------------------------------
+# ASSUMPTION: pending validation with Easy Office. One proxy: Traefik sets
+# X-Forwarded-For to the client it sees, in production and staging. A load
+# balancer in front of it, depending on the hosting (TA-09), adds one more.
+REST_FRAMEWORK["NUM_PROXIES"] = env.int("DJANGO_NUM_PROXIES", default=1)
 
 # CACHES
 # ------------------------------------------------------------------------------
