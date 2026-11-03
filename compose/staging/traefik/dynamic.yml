@@ -1,0 +1,116 @@
+http:
+  routers:
+    # The only paths without the password; each keeps its own verification.
+    pagos-webhooks:
+      rule: >-
+        Host(`__STAGING_HOST__`) && Method(`POST`) && (
+        Path(`/api/pagos/webhooks/klap/validacion/`) ||
+        Path(`/api/pagos/webhooks/klap/confirmacion/`) ||
+        Path(`/api/pagos/webhooks/klap/rechazo/`) ||
+        Path(`/api/pagos/webhooks/flow/confirmacion/`))
+      entryPoints:
+        - web-secure
+      priority: 300
+      middlewares:
+        - csrf
+      service: django
+
+    pagos-retorno:
+      rule: >-
+        Host(`__STAGING_HOST__`) && (Method(`GET`) || Method(`POST`)) &&
+        PathRegexp(`^/api/pagos/retorno/[0-9]+/$`)
+      entryPoints:
+        - web-secure
+      priority: 300
+      middlewares:
+        - csrf
+      service: django
+
+    app-media:
+      rule: Host(`__STAGING_HOST__`) && PathPrefix(`/media/`)
+      entryPoints:
+        - web-secure
+      priority: 200
+      middlewares:
+        - equipo
+        - csrf
+      service: django-media
+
+    app-django:
+      rule: >-
+        Host(`__STAGING_HOST__`) && (PathPrefix(`/api/`) || Path(`/admin`) ||
+        PathPrefix(`/admin/`) || PathPrefix(`/static/`))
+      entryPoints:
+        - web-secure
+      priority: 200
+      middlewares:
+        - equipo
+        - csrf
+      service: django
+
+    app-frontend:
+      rule: Host(`__STAGING_HOST__`)
+      entryPoints:
+        - web-secure
+      priority: 100
+      middlewares:
+        - equipo
+      service: frontend
+
+    firma:
+      rule: Host(`firma.__STAGING_HOST__`)
+      entryPoints:
+        - web-secure
+      middlewares:
+        - equipo
+      service: firma-sandbox
+
+    correo:
+      rule: Host(`correo.__STAGING_HOST__`)
+      entryPoints:
+        - web-secure
+      middlewares:
+        - equipo
+      service: mailpit
+
+  middlewares:
+    csrf:
+      headers:
+        hostsProxyHeaders: ['X-CSRFToken']
+
+    equipo:
+      basicAuth:
+        realm: CRM Easy Office staging
+        usersFile: /etc/traefik/basic-auth
+        removeHeader: true
+
+    noindex:
+      headers:
+        customResponseHeaders:
+          X-Robots-Tag: noindex, nofollow
+
+  services:
+    django:
+      loadBalancer:
+        servers:
+          - url: http://django:5000
+
+    django-media:
+      loadBalancer:
+        servers:
+          - url: http://nginx:80
+
+    frontend:
+      loadBalancer:
+        servers:
+          - url: http://frontend:80
+
+    firma-sandbox:
+      loadBalancer:
+        servers:
+          - url: http://firma-sandbox:8100
+
+    mailpit:
+      loadBalancer:
+        servers:
+          - url: http://mailpit:8025

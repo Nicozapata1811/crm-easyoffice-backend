@@ -124,7 +124,9 @@ La documentación de la API requiere una sesión de administrador.
 ### Variables de entorno
 
 `DJANGO_SESSION_INACTIVITY_SECONDS` fija los segundos de inactividad tras los
-que expira la sesión. Las variables de pago se describen en
+que expira la sesión. `DJANGO_THROTTLE_LOGIN` limita los intentos de ingreso por
+dirección, y `DJANGO_NUM_PROXIES` dice cuántos proxies hay delante de Django (0
+en local; 1 en producción y staging, por Traefik) para saber qué dirección creer. Las variables de pago se describen en
 [Pago con Klap en local](#pago-con-klap-en-local).
 
 Las credenciales viven en `.envs/`, que **no** se versiona. Los archivos se
@@ -564,8 +566,15 @@ guardan `last_login`, `Pago.respuesta`, `OrdenPago.redirect_url` ni
 archivos, solo por su nombre. Los roles y permisos se registran por nombre
 (`{"rol": "Ejecutivo"}`). Además, `core.auditoria.registrar_evento` registra lo
 que no cambia filas: ingreso, cierre de sesión e intento fallido (personal,
-portal, panel de administración), descarga de un documento del trámite y acceso
-a la cédula del autorizante.
+portal, panel de administración), descarga de un documento del trámite, acceso
+a la cédula del autorizante, y el reenvío, la cancelación o el reintento de una
+firma por un ejecutivo (el proveedor se llama en Celery, como `sistema`: esta
+fila dice quién lo pidió).
+
+**Límite de intentos.** Cada ingreso fallido es una fila que no se puede borrar,
+así que el login de la API, el del panel de administración y `/api/auth-token/`
+comparten un límite por dirección (`DJANGO_THROTTLE_LOGIN`) y responden `429` al
+superarlo, sin registrar nada.
 
 **Quién, desde dónde y por qué canal.** Cada fila lleva `usuario`,
 `direccion_ip` y `origen` (`api`, `portal`, `admin` o `sistema`). Las tareas de
@@ -596,14 +605,17 @@ escritura.
 Cada fila trae `fecha_hora`, `usuario` y `usuario_nombre` (`null` cuando actuó
 el sistema), `origen`, `accion` (`crear`, `modificar`, `eliminar`,
 `inicio_sesion`, `cierre_sesion`, `inicio_sesion_fallido`,
-`descarga_documento`, `acceso_documento_identidad`), `entidad` y
+`descarga_documento`, `acceso_documento_identidad`, `reenvio_firma`,
+`cancelacion_firma`, `reintento_firma`), `entidad` y
 `entidad_nombre`, `registro_id` y `registro_nombre`, `valor_anterior`,
 `valor_nuevo` y `direccion_ip`.
 
 Suposiciones pendientes de validar con Easy Office: que los intentos fallidos
 se conserven con el correo escrito; el plazo de conservación del registro (hoy
-indefinido); que el historial de un cliente no incluya sus contratos ni
-trámites; y qué encabezado de proxy da la IP del cliente en producción.
+indefinido y sin forma de purgar, porque la base rechaza todo borrado: hay que
+resolverlo con Easy Office por la Ley 21.719); que el historial de un cliente no
+incluya sus contratos ni trámites; el límite de intentos; y que en producción
+haya un solo proxy (revisar la IP registrada en el primer despliegue).
 
 ### Pago con Flow en local
 
@@ -672,9 +684,10 @@ automáticas.
 ### Firma avanzada con el PSC de pruebas en local
 
 > El PSC de pruebas es un prestador **ficticio**: sus firmas no tienen validez
-> legal (Ley 19.799). Solo existe en `docker-compose.local.yml` y se niega a
-> iniciar fuera de desarrollo. La firma legal queda con un prestador acreditado
-> (tufirma.digital, RN-21), cuando lleguen sus credenciales (TA-07).
+> legal (Ley 19.799). Corre en local y en staging, nunca en producción: no está
+> en `docker-compose.production.yml` y se niega a iniciar con configuración de
+> producción. La firma legal queda con un prestador acreditado (tufirma.digital,
+> RN-21), cuando lleguen sus credenciales (TA-07).
 
 Cada tipo de trámite dice cómo se firma en `configuracion["firma"]`:
 
@@ -733,6 +746,15 @@ Las tres acciones responden `202`: el proveedor se llama en Celery.
 
 ---
 
+## Ambiente de staging
+
+Staging corre en internet todo lo que funciona en local, solo con datos ficticios:
+portal y backoffice, Klap y Flow en sandbox, firma avanzada con el PSC de pruebas y
+Mailpit. Cada merge a `main` que pasa la CI se despliega solo. La guía completa,
+paso a paso, está en [`docs/staging.md`](docs/staging.md).
+
+---
+
 ## Estado actual
 
 Sprint 2 (6 – 17 de octubre de 2026). Ya están:
@@ -749,7 +771,8 @@ Sprint 2 (6 – 17 de octubre de 2026). Ya están:
 - el registro de auditoría con disparadores de base de datos, protegido contra
   modificación, y su consulta para el Administrador (HU-30, HU-31);
 - la firma electrónica avanzada a través de un proveedor, probada contra un
-  PSC de pruebas propio y sin validez legal (IN-01).
+  PSC de pruebas propio y sin validez legal (IN-01);
+- un ambiente de staging con despliegue automático ([guía](docs/staging.md)).
 
 Siguen pendientes los campos definitivos del cliente, los estados de los
 trámites, las plantillas reales, la confirmación del

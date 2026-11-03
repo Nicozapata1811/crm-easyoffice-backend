@@ -1,0 +1,43 @@
+name: Deploy staging
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: ['main']
+  workflow_dispatch:
+
+# GitHub scopes this group to one repository; the lock in deploy.sh on the VM
+# is what stops this repo and the other one from deploying at once.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 60
+    steps:
+      - name: Run the deploy script on the VM
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          if [ -z "$STAGING_HOST" ] || [ -z "$STAGING_USER" ] || [ -z "$STAGING_SSH_KEY" ]; then
+            echo "::notice::Staging secrets are not set; skipping the deploy."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging
+          chmod 600 ~/.ssh/staging
+          ssh -i ~/.ssh/staging \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 \
+            "$STAGING_USER@$STAGING_HOST"

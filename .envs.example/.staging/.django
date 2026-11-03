@@ -1,0 +1,60 @@
+# Staging template. Every CHANGEME is generated per environment (docs/staging.md).
+# Nothing in .envs/ is ever committed: this repository is public.
+
+# General
+# ------------------------------------------------------------------------------
+DJANGO_SETTINGS_MODULE=config.settings.staging
+DJANGO_SECRET_KEY=CHANGEME
+DJANGO_ADMIN_URL=admin/
+# "django" is the host the test PSC's webhooks arrive with, on the compose network.
+DJANGO_ALLOWED_HOSTS=<ip-con-guiones>.sslip.io,django
+
+# Security
+# ------------------------------------------------------------------------------
+# Traefik redirects to HTTPS; the PSC's webhooks arrive over HTTP on the network.
+DJANGO_SECURE_SSL_REDIRECT=False
+# sslip.io is a shared domain: no preload, no subdomains.
+DJANGO_SECURE_HSTS_PRELOAD=False
+DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=False
+
+# Email (Mailpit)
+# ------------------------------------------------------------------------------
+DJANGO_SERVER_EMAIL=
+EMAIL_HOST=mailpit
+
+# Private uploads
+# ------------------------------------------------------------------------------
+DJANGO_PRIVATE_MEDIA_ROOT=/app/private_media
+
+# Gunicorn
+# ------------------------------------------------------------------------------
+WEB_CONCURRENCY=2
+
+# Session
+# ------------------------------------------------------------------------------
+DJANGO_SESSION_INACTIVITY_SECONDS=1800
+
+# Redis
+# ------------------------------------------------------------------------------
+REDIS_URL=redis://redis:6379/0
+
+# Payments (sandbox credentials only)
+# ------------------------------------------------------------------------------
+PAYMENT_PROVIDERS=klap,flow
+KLAP_API_KEY=CHANGEME
+FLOW_API_KEY=CHANGEME
+FLOW_SECRET_KEY=CHANGEME
+PAYMENT_WEBHOOK_BASE_URL=https://<ip-con-guiones>.sslip.io
+PORTAL_BASE_URL=https://<ip-con-guiones>.sslip.io
+
+# Documents
+# ------------------------------------------------------------------------------
+PDF_CONVERTER=gotenberg
+GOTENBERG_URL=http://gotenberg:3000
+
+# Demo users (seed_demo_usuarios)
+# ------------------------------------------------------------------------------
+STAGING_DEMO_ADMIN_PASSWORD=CHANGEME
+STAGING_DEMO_EJECUTIVO_PASSWORD=CHANGEME
+STAGING_DEMO_CLIENTE1_PASSWORD=CHANGEME
+STAGING_DEMO_CLIENTE2_PASSWORD=CHANGEME

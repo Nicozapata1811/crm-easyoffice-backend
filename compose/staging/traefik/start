@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -o errexit
+set -o nounset
+
+for plantilla in traefik.yml dynamic.yml; do
+  sed \
+    -e "s|__STAGING_HOST__|${STAGING_HOST}|g" \
+    -e "s|__STAGING_ACME_EMAIL__|${STAGING_ACME_EMAIL}|g" \
+    "/etc/traefik/plantillas/${plantilla}" > "/etc/traefik/${plantilla}"
+done
+
+exec traefik --configFile=/etc/traefik/traefik.yml

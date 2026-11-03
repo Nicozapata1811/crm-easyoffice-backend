@@ -83,7 +83,7 @@ INSTALLED_APPS += ["django_extensions"]
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-eager-propagates
 CELERY_TASK_EAGER_PROPAGATES = True
 
-# The test PSC (firma-sandbox) is allowed here, and only here and in tests.
+# The test PSC (firma-sandbox) is allowed here, in tests and in staging.
 SIGNATURE_ALLOW_SANDBOX = True
 # Your stuff...
 # ------------------------------------------------------------------------------

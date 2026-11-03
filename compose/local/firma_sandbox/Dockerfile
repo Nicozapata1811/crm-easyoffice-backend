@@ -1,5 +1,6 @@
-# The test PSC (PSC de pruebas). Local development only: it is not part of
-# docker-compose.production.yml and refuses to start outside development.
+# The test PSC (PSC de pruebas), for local development and staging: it is not
+# part of docker-compose.production.yml and refuses to start with production
+# configuration.
 FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0 \

@@ -472,5 +472,5 @@ SIGNATURE_WEBHOOK_TOLERANCE_SECONDS = 300
 # ASSUMPTION: pending validation with Easy Office. How long a signing link
 # lasts; it never outlives the contract's start date.
 SIGNATURE_REQUEST_TTL_DAYS = env.int("SIGNATURE_REQUEST_TTL_DAYS", default=7)
-# Whether the test PSC may be used. Only local and test settings allow it.
+# Whether the test PSC may be used. Only local, test and staging settings allow it.
 SIGNATURE_ALLOW_SANDBOX = False

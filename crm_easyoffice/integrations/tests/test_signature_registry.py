@@ -67,6 +67,74 @@ def test_production_settings_refuse_to_load_with_the_sandbox_url():
     assert "test signature service" in resultado.stderr
 
 
+def _importar_settings(modulo: str, **entorno: str) -> subprocess.CompletedProcess:
+    variables = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("DJANGO_", "SIGNATURE_", "STAGING_"))
+    }
+    codigo = (
+        f"from {modulo} import SIGNATURE_ALLOW_SANDBOX, SIGNATURE_API_BASE_URL, "
+        "SIGNATURE_PROVIDER; "
+        "print(SIGNATURE_PROVIDER, SIGNATURE_API_BASE_URL, SIGNATURE_ALLOW_SANDBOX)"
+    )
+    return subprocess.run(  # noqa: S603 - our own code, in a test
+        [sys.executable, "-c", codigo],
+        cwd=RAIZ,
+        env={
+            **variables,
+            "DJANGO_SECRET_KEY": "x" * 50,
+            "DJANGO_ADMIN_URL": "admin/",
+            **entorno,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_staging_settings_accept_the_test_psc():
+    resultado = _importar_settings("config.settings.staging")
+    assert resultado.returncode == 0, resultado.stderr
+    assert resultado.stdout.split() == [
+        "http",
+        "http://firma-sandbox:8100/api/v1/",
+        "True",
+    ]
+
+
+def test_staging_settings_refuse_the_test_psc_under_the_production_names():
+    resultado = _importar_settings(
+        "config.settings.staging",
+        SIGNATURE_PROVIDER="http",
+        SIGNATURE_API_BASE_URL="http://firma-sandbox:8100/api/v1/",
+    )
+    assert resultado.returncode != 0
+    assert "test signature service" in resultado.stderr
+
+
+def test_production_settings_ignore_the_staging_variables():
+    resultado = _importar_settings(
+        "config.settings.production",
+        STAGING_SIGNATURE_PROVIDER="http",
+        STAGING_SIGNATURE_API_BASE_URL="http://firma-sandbox:8100/api/v1/",
+    )
+    assert resultado.returncode == 0, resultado.stderr
+    assert resultado.stdout.split() == ["simulated", "False"]
+
+
+def test_staging_urls_never_point_at_localhost():
+    plantillas = RAIZ / ".envs.example" / ".staging"
+    urls = [
+        linea
+        for archivo in plantillas.iterdir()
+        for linea in archivo.read_text().splitlines()
+        if "://" in linea and not linea.startswith("#")
+    ]
+    assert urls
+    assert not [url for url in urls if "localhost" in url or "127.0.0.1" in url]
+
+
 def test_the_registry_builds_the_configured_provider(settings):
     settings.SIGNATURE_PROVIDER = "simulated"
     assert isinstance(get_signature_provider(), SimulatedSignatureProvider)
