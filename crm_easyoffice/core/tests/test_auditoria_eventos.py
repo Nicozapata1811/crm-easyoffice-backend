@@ -188,13 +188,13 @@ class TestLimiteDeIntentos:
 
     def test_a_spoofed_forwarded_address_does_not_escape_the_limit(self):
         for numero in range(3):
-            Client(HTTP_X_FORWARDED_FOR=f"203.0.113.{numero}").post(
+            Client(headers={"x-forwarded-for": f"203.0.113.{numero}"}).post(
                 reverse("auth:login"),
                 {"email": "nadie@example.test", "password": WRONG_PASSWORD},
                 content_type="application/json",
             )
 
-        respuesta = Client(HTTP_X_FORWARDED_FOR="203.0.113.9").post(
+        respuesta = Client(headers={"x-forwarded-for": "203.0.113.9"}).post(
             reverse("auth:login"),
             {"email": "nadie@example.test", "password": WRONG_PASSWORD},
             content_type="application/json",
