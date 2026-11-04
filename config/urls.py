@@ -7,7 +7,8 @@ from django.views import defaults as default_views
 from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView
 from drf_spectacular.views import SpectacularSwaggerView
-from rest_framework.authtoken.views import obtain_auth_token
+
+from crm_easyoffice.users.api.auth_views import TokenView
 
 urlpatterns = [
     path("", TemplateView.as_view(template_name="pages/home.html"), name="home"),
@@ -34,12 +35,13 @@ urlpatterns += [
     path("api/", include("crm_easyoffice.documentos.api.urls")),
     path("api/auth/", include("crm_easyoffice.users.api.auth_urls")),
     path("api/panel/", include("crm_easyoffice.panel.api.urls")),
+    path("api/auditoria/", include("crm_easyoffice.core.api.urls")),
     path("api/inmuebles/", include("crm_easyoffice.inmuebles.api.urls")),
     path("api/portal/", include("config.portal_urls")),
     path("api/pagos/", include("crm_easyoffice.ventas.api.webhook_urls")),
     path("api/firma/", include("crm_easyoffice.documentos.api.webhook_urls")),
     # DRF auth token
-    path("api/auth-token/", obtain_auth_token, name="obtain_auth_token"),
+    path("api/auth-token/", TokenView.as_view(), name="obtain_auth_token"),
     path("api/schema/", SpectacularAPIView.as_view(), name="api-schema"),
     path(
         "api/docs/",

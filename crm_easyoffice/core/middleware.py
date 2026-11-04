@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 
+from crm_easyoffice.core.auditoria.contexto import Contexto
+from crm_easyoffice.core.auditoria.contexto import contexto_auditoria
+
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.http import HttpRequest
     from django.http import HttpResponse
 
@@ -53,3 +58,19 @@ class AdminSessionMiddleware(SessionMiddleware):
 
     def _is_admin(self, request: HttpRequest) -> bool:
         return request.path_info.startswith(self.admin_path())
+
+
+class AuditoriaMiddleware:
+    """Make the request the audit context while it runs (RF-15).
+
+    It sets nothing in the database: ``core.auditoria.contexto`` does, before
+    the first write of the request's transaction, which this middleware does
+    not see (``ATOMIC_REQUESTS`` wraps only the view).
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        with contexto_auditoria(Contexto(request=request)):
+            return self.get_response(request)

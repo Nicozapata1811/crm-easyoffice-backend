@@ -340,7 +340,10 @@ script:
    staging», con su SHA-256 actualizado;
 3. borra las tablas que ningún modelo conoce, por ejemplo las que dejó otra rama, y
    avisa cuáles. Luego busca los valores originales en **todas** las tablas. Si
-   queda alguno, se detiene y nada sale de tu computador;
+   queda alguno, se detiene y nada sale de tu computador. Esa búsqueda omite el
+   registro de auditoría, que guarda los valores anteriores: sus filas no salen
+   de tu computador, porque el respaldo que se sube las excluye, y staging parte
+   sin historial;
 4. sube la copia, respalda staging, restaura, migra y crea los usuarios de
    demostración;
 5. registra a las personas generadas en el PSC de staging.

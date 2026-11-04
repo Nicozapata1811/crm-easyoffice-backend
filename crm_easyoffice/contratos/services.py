@@ -335,7 +335,6 @@ def crear_contrato(  # noqa: PLR0913 - mirrors the contract form
         for servicio in servicios:
             servicio.contrato = contrato
         ServicioContratado.objects.bulk_create(servicios)
-    # TODO(RF-15): record the contract in the audit log (HU-30).
     return contrato
 
 
@@ -388,7 +387,6 @@ def actualizar_borrador(  # noqa: PLR0913 - mirrors the portal form
         for servicio in servicios:
             servicio.contrato = contrato
         ServicioContratado.objects.bulk_create(servicios)
-    # TODO(RF-15): record the change in the audit log (HU-30).
     return contrato
 
 
@@ -402,7 +400,6 @@ def activar_contrato(contrato: Contrato) -> Contrato:
         contrato = _borrador_bloqueado(contrato)
         contrato.estado = Contrato.Estado.VIGENTE
         contrato.save(update_fields=["estado", "updated_at"])
-    # TODO(RF-15): record the change in the audit log (HU-30).
     return contrato
 
 
@@ -416,7 +413,6 @@ def anular_borrador(contrato: Contrato) -> Contrato:
         contrato = _borrador_bloqueado(contrato)
         contrato.estado = Contrato.Estado.ANULADO
         contrato.save(update_fields=["estado", "updated_at"])
-    # TODO(RF-15): record the change in the audit log (HU-30).
     return contrato
 
 

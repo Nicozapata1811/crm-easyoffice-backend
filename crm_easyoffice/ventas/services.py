@@ -129,7 +129,6 @@ def crear_venta(
         for linea in lineas:
             linea.venta = venta
         ItemVenta.objects.bulk_create(lineas)
-    # TODO(RF-15): record the sale in the audit log (HU-30).
     return venta
 
 
@@ -193,7 +192,6 @@ def anular_venta(venta: Venta) -> None:
         )
         venta.estado = Venta.Estado.ANULADA
         venta.save(update_fields=["estado", "updated_at"])
-    # TODO(RF-15): record the cancellation in the audit log (HU-30).
 
 
 def iniciar_pago(venta: Venta, proveedor: str) -> OrdenPago:
@@ -231,7 +229,6 @@ def iniciar_pago(venta: Venta, proveedor: str) -> OrdenPago:
             monto=venta.total,
         )
         transaction.on_commit(lambda: crear_orden_en_proveedor.delay(orden.pk))
-    # TODO(RF-15): record the payment attempt in the audit log (HU-30).
     return orden
 
 
@@ -298,7 +295,6 @@ def aplicar_resultado(orden_id: int, resultado: PaymentResult, *, origen: str) -
             Venta.objects.filter(pk=orden.venta_id).update(
                 estado=Venta.Estado.REEMBOLSADA,
             )
-    # TODO(RF-15): record the change and its origin in the audit log (HU-30).
     return True
 
 

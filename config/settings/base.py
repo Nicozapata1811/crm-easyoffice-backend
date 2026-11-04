@@ -166,6 +166,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "crm_easyoffice.core.middleware.AuditoriaMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
@@ -373,8 +374,14 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Proxies in front of Django. It decides which address throttling and the
+    # audit log trust; none locally, so X-Forwarded-For cannot be spoofed.
+    "NUM_PROXIES": env.int("DJANGO_NUM_PROXIES", default=0),
     "DEFAULT_THROTTLE_RATES": {
         "registro": env("DJANGO_THROTTLE_REGISTRO", default="10/hour"),
+        # ASSUMPTION: pending validation with Easy Office. Per client address,
+        # across the API login, the admin login and the token endpoint.
+        "login": env("DJANGO_THROTTLE_LOGIN", default="10/min"),
     },
 }
 

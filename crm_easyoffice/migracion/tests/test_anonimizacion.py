@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import hashlib
 from datetime import date
+from pathlib import Path
 
 import pytest
 from django.apps import apps
+from django.conf import settings
 from django.contrib.sessions.models import Session
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import DatabaseError
 from django.db import connection
 from django.db import models
+from django.db import transaction
 from django.utils import timezone
 
 from crm_easyoffice.clientes.models import Empresa
@@ -21,6 +25,7 @@ from crm_easyoffice.clientes.tests.factories import EmpresaFactory
 from crm_easyoffice.clientes.tests.factories import PersonaFactory
 from crm_easyoffice.clientes.tests.factories import RepresentanteLegalFactory
 from crm_easyoffice.configuracion.models import ConfigEmpresa
+from crm_easyoffice.core.models import RegistroAuditoria
 from crm_easyoffice.core.validators import validate_rut
 from crm_easyoffice.documentos import formato
 from crm_easyoffice.documentos.models import Documento
@@ -34,6 +39,7 @@ from crm_easyoffice.inmuebles.services import problemas_para_domicilio
 from crm_easyoffice.migracion import anonimizacion
 from crm_easyoffice.migracion.anonimizacion import ANONIMIZADOS
 from crm_easyoffice.migracion.anonimizacion import CONSERVADOS
+from crm_easyoffice.migracion.anonimizacion import FUERA_DE_LA_COPIA
 from crm_easyoffice.migracion.anonimizacion import REVISADOS
 from crm_easyoffice.migracion.anonimizacion import TEXTO_FIJO
 from crm_easyoffice.migracion.anonimizacion import TEXTO_PLACEHOLDER
@@ -440,6 +446,7 @@ def test_every_text_field_of_the_project_is_classified():
             ANONIMIZADOS.get(etiqueta, set())
             | CONSERVADOS.get(etiqueta, set())
             | REVISADOS.get(etiqueta, set())
+            | FUERA_DE_LA_COPIA.get(etiqueta, set())
         )
         faltan = _campos_de_texto(modelo) - conocidos
         if faltan:
@@ -457,3 +464,24 @@ def test_no_field_is_classified_twice_or_invented():
         opciones = apps.get_model(etiqueta)._meta  # noqa: SLF001
         existentes = {campo.name for campo in opciones.fields}
         assert (anonimizados | conservados | revisados) <= existentes
+
+
+@pytest.mark.usefixtures("es_la_copia")
+def test_the_audit_log_keeps_its_rows_and_its_protection(caso):
+    """Anonymizing neither empties the log nor fails because of what it holds."""
+    anonimizar()
+
+    assert RegistroAuditoria.objects.exists()
+    with (
+        pytest.raises(DatabaseError, match="no se puede modificar"),
+        transaction.atomic(),
+        connection.cursor() as cursor,
+    ):
+        cursor.execute("DELETE FROM core_registroauditoria")
+
+
+def test_the_audit_logs_rows_never_leave_the_copy():
+    script = Path(settings.BASE_DIR, "scripts/staging/copy_local_db.sh").read_text()
+    empaque = script.partition('"==> Packing it"')[2].partition('"==> Uploading')[0]
+
+    assert "--exclude-table-data=core_registroauditoria" in empaque

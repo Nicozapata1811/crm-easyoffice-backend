@@ -2,7 +2,10 @@ from allauth.account.decorators import secure_admin_login
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import admin as auth_admin
+from django.http import HttpResponse
 from django.utils.translation import gettext_lazy as _
+
+from crm_easyoffice.core.throttling import IngresoThrottle
 
 from .forms import UserAdminChangeForm
 from .forms import UserAdminCreationForm
@@ -13,6 +16,25 @@ if settings.DJANGO_ADMIN_FORCE_ALLAUTH:
     # https://docs.allauth.org/en/latest/common/admin.html#admin
     admin.autodiscover()
     admin.site.login = secure_admin_login(admin.site.login)  # type: ignore[method-assign]
+
+
+def _con_limite_de_intentos(login):
+    """Limit the admin's sign-in attempts, sharing the API login's rate."""
+
+    def vista(request, extra_context=None):
+        limite = IngresoThrottle()
+        if request.method == "POST" and not limite.allow_request(request, None):
+            return HttpResponse(
+                _("Demasiados intentos de ingreso. Espera un momento."),
+                status=429,
+                headers={"Retry-After": str(int(limite.wait() or 0))},
+            )
+        return login(request, extra_context)
+
+    return vista
+
+
+admin.site.login = _con_limite_de_intentos(admin.site.login)  # type: ignore[method-assign]
 
 
 @admin.register(User)

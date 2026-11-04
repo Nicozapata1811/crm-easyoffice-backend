@@ -64,7 +64,9 @@ copia run --rm -T anonimizador python manage.py anonimizar_datos \
   --es-copia --identidades /copia/identidades.json
 
 echo "==> Packing it"
-copia exec -T postgres-copia pg_dump --no-owner --no-privileges -U copia crm_copia \
+# The audit log's rows hold original values, so they stay behind with the copy.
+copia exec -T postgres-copia pg_dump --no-owner --no-privileges \
+  --exclude-table-data=core_registroauditoria -U copia crm_copia \
   | gzip >"${trabajo}/copia.sql.gz"
 copia run --rm -T --no-deps --entrypoint tar anonimizador -czf - -C /copia/private_media . \
   >"${trabajo}/private_media.tar.gz"

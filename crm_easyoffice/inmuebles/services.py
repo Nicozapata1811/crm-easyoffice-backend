@@ -10,6 +10,8 @@ from django.db.models import Prefetch
 from django.db.models import Q
 
 from crm_easyoffice.clientes.services import representa_a
+from crm_easyoffice.core.auditoria.eventos import Accion
+from crm_easyoffice.core.auditoria.eventos import registrar_evento
 
 from .models import Autorizante
 from .models import Oficina
@@ -113,7 +115,6 @@ def guardar_documento_identidad(
 
     campo.save(archivo.name, archivo, save=False)
     autorizante.save(update_fields=[_campo(reverso), "updated_at"])
-    # TODO(RF-15): record the upload in the audit log (HU-30).
     if anterior:
         storage = campo.storage
         transaction.on_commit(lambda: storage.delete(anterior))
@@ -135,8 +136,14 @@ def abrir_documento_identidad(
     campo = getattr(autorizante, _campo(reverso))
     if not campo:
         raise FileNotFoundError
-    # TODO(RF-15): record each access in the audit log (HU-30).
-    return campo.open("rb")
+    archivo = campo.open("rb")
+    registrar_evento(
+        Accion.ACCESO_DOCUMENTO_IDENTIDAD,
+        entidad="inmuebles.autorizante",
+        registro_id=autorizante.pk,
+        datos={"lado": "reverso" if reverso else "anverso"},
+    )
+    return archivo
 
 
 def _es_imagen(campo) -> bool:

@@ -6,6 +6,7 @@ The session lives in an httpOnly cookie (AD-03); no token reaches the browser.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from typing import Any
 from typing import cast
 
 from django.contrib.auth import authenticate
@@ -20,9 +21,15 @@ from drf_spectacular.utils import extend_schema
 from drf_spectacular.utils import inline_serializer
 from rest_framework import serializers
 from rest_framework import status
+from rest_framework.authtoken.models import Token
+from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from crm_easyoffice.core.auditoria.eventos import Accion
+from crm_easyoffice.core.auditoria.eventos import registrar_evento
+from crm_easyoffice.core.throttling import IngresoThrottle
 
 from .serializers import LoginSerializer
 from .serializers import SessionUserSerializer
@@ -54,6 +61,7 @@ class CsrfView(APIView):
 @method_decorator(csrf_protect, name="dispatch")
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [IngresoThrottle]
 
     @extend_schema(request=LoginSerializer, responses=SessionUserSerializer)
     def post(self, request: Request) -> Response:
@@ -70,8 +78,30 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         login(request, user)
-        # TODO(RF-15): record the login in the audit log (HU-01) once core has it.
         return Response(SessionUserSerializer(user).data)
+
+
+class TokenView(ObtainAuthToken):
+    """Exchange a password for an API token: a sign-in like any other."""
+
+    throttle_classes = [IngresoThrottle]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        # Answer instead of raising: DRF would roll back the request's
+        # transaction under ATOMIC_REQUESTS, and the failed sign-in's entry with it.
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        user = serializer.validated_data["user"]
+        token, _created = Token.objects.get_or_create(user=user)
+        # No login() here, so Django's auth signal does not record it.
+        registrar_evento(
+            Accion.INICIO_SESION,
+            entidad="users.user",
+            registro_id=user.pk,
+            usuario=user,
+        )
+        return Response({"token": token.key})
 
 
 class LogoutView(APIView):

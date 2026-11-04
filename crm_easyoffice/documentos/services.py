@@ -184,7 +184,6 @@ def generar(tramite: Tramite) -> Documento | None:
             )
         )
         documento_listo(tramite)
-    # TODO(RF-15): record the generation in the audit log (HU-30).
     return documento
 
 
@@ -250,7 +249,6 @@ def registrar_firmado(documento: Documento, archivo: File, usuario: User) -> Doc
         raise DocumentoNoFirmableError from error
 
     archivo.seek(0)
-    # TODO(RF-15): record the upload in the audit log (HU-30).
     return guardar_firmado(documento, archivo.read(), usuario)
 
 

@@ -194,7 +194,6 @@ class ClienteSerializer(serializers.ModelSerializer[Cliente]):
         datos = validated_data.pop(tipo)
         with transaction.atomic():
             parte = guardar_parte(tipo, datos)
-            # TODO(RF-15): record the creation in the audit log (HU-30).
             return Cliente.objects.create(**{tipo: parte}, **validated_data)
 
     def update(self, instance: Cliente, validated_data: dict[str, Any]) -> Cliente:
@@ -206,5 +205,4 @@ class ClienteSerializer(serializers.ModelSerializer[Cliente]):
                 for campo, valor in datos.items():
                     setattr(parte, campo, valor)
                 parte.save()
-            # TODO(RF-15): record the change in the audit log (HU-30).
             return super().update(instance, validated_data)

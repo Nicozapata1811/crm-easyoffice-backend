@@ -22,6 +22,7 @@ from rest_framework.test import APIClient
 from crm_easyoffice.clientes.tests.factories import CuentaClienteFactory
 from crm_easyoffice.configuracion.models import ConfigEmpresa
 from crm_easyoffice.contratos.models import Contrato
+from crm_easyoffice.core.models import RegistroAuditoria
 from crm_easyoffice.documentos import firma
 from crm_easyoffice.documentos.models import Documento
 from crm_easyoffice.documentos.models import EventoFirma
@@ -650,3 +651,82 @@ def test_the_webhook_of_another_provider_is_not_found(http):
         .status_code
         == HTTPStatus.NOT_FOUND
     )
+
+
+def _eventos_de_firma(documento) -> list[RegistroAuditoria]:
+    return list(
+        RegistroAuditoria.objects.filter(
+            entidad="documentos.documento",
+            registro_id=documento.pk,
+            accion__in=[
+                RegistroAuditoria.Accion.REENVIO_FIRMA,
+                RegistroAuditoria.Accion.CANCELACION_FIRMA,
+                RegistroAuditoria.Accion.REINTENTO_FIRMA,
+            ],
+        ).order_by("pk"),
+    )
+
+
+def test_the_audit_log_says_who_resent_or_cancelled(
+    client,
+    proveedor,
+    avanzada,
+    django_capture_on_commit_callbacks,
+):
+    ejecutivo = client.handler._force_user  # noqa: SLF001
+    tramite = a_firma(client, django_capture_on_commit_callbacks)
+    documento = SolicitudFirma.objects.get().documento
+    primero = documento.firmantes.get(orden=1)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(
+            ruta("firma-reenviar", tramite.pk, documento.pk),
+            {"firmante": primero.pk},
+            format="json",
+        )
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(ruta("firma-cancelar", tramite.pk, documento.pk))
+
+    eventos = _eventos_de_firma(documento)
+    assert [(e.accion, e.valor_nuevo) for e in eventos] == [
+        ("reenvio_firma", {"firmante": primero.pk}),
+        ("cancelacion_firma", None),
+    ]
+    assert {e.usuario for e in eventos} == {ejecutivo}
+    assert {e.origen for e in eventos} == {"api"}
+
+
+def test_the_audit_log_says_who_retried(
+    client,
+    proveedor,
+    avanzada,
+    django_capture_on_commit_callbacks,
+):
+    ejecutivo = client.handler._force_user  # noqa: SLF001
+    tramite = a_firma(client, django_capture_on_commit_callbacks)
+    solicitud = SolicitudFirma.objects.get()
+    SolicitudFirma.objects.filter(pk=solicitud.pk).update(
+        estado=SolicitudFirma.Estado.ERROR,
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(ruta("firma-reintentar", tramite.pk, solicitud.documento_id))
+
+    [evento] = _eventos_de_firma(solicitud.documento)
+    assert evento.accion == RegistroAuditoria.Accion.REINTENTO_FIRMA
+    assert evento.usuario == ejecutivo
+
+
+def test_a_refused_signature_action_is_not_audited(
+    client,
+    proveedor,
+    avanzada,
+    django_capture_on_commit_callbacks,
+):
+    tramite = a_firma(client, django_capture_on_commit_callbacks)
+    documento = SolicitudFirma.objects.get().documento
+
+    respuesta = client.post(ruta("firma-reintentar", tramite.pk, documento.pk))
+
+    assert respuesta.status_code == HTTPStatus.CONFLICT
+    assert _eventos_de_firma(documento) == []

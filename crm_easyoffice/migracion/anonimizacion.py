@@ -200,6 +200,22 @@ TABLAS_SIN_DATOS = re.compile(
     r"|django_celery_beat_.*)$",
 )
 
+# The audit log holds original values in its JSON, and the triggers add more as
+# this module overwrites rows. Its rows never leave the machine: the bundle is
+# dumped with --exclude-table-data (scripts/staging/copy_local_db.sh), and the
+# copy is destroyed with them. So staging starts with no history and the log
+# keeps its protection everywhere. Not searched, since it is known to match.
+FUERA_DE_LA_COPIA = {
+    "core.RegistroAuditoria": {
+        "origen",
+        "accion",
+        "entidad",
+        "valor_anterior",
+        "valor_nuevo",
+    },
+}
+TABLA_AUDITORIA = "core_registroauditoria"
+
 SNAPSHOT_CONSERVADO = {"folio", "fecha_inicio", "duracion", "vencimiento", "servicios"}
 COLUMNA_SNAPSHOT = ("documentos_documento", "datos_snapshot")
 
@@ -621,7 +637,7 @@ def verificar(originales: set[str]) -> list[str]:
     culpables = set()
     with connection.cursor() as cursor:
         for tabla in connection.introspection.table_names(cursor):
-            if TABLAS_SIN_DATOS.match(tabla):
+            if TABLAS_SIN_DATOS.match(tabla) or tabla == TABLA_AUDITORIA:
                 continue
             nombre = connection.ops.quote_name(tabla)
             cursor.execute(f"SELECT to_jsonb(t)::text FROM {nombre} t")  # noqa: S608
