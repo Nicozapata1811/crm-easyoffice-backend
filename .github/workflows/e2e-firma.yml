@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: Checkout Code Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Write local env files with fresh test values
         run: |
