@@ -6,6 +6,7 @@ import ssl
 from pathlib import Path
 
 import environ
+from celery.schedules import crontab
 
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 # crm_easyoffice/
@@ -83,6 +84,7 @@ DJANGO_APPS = [
     "django.contrib.staticfiles",
     # "django.contrib.humanize", # Handy template tags
     "django.contrib.admin",
+    "django.contrib.postgres",
     "django.forms",
 ]
 THIRD_PARTY_APPS = [
@@ -340,6 +342,11 @@ CELERY_BEAT_SCHEDULE = {
     "sincronizar-solicitudes-firma": {
         "task": "crm_easyoffice.documentos.tasks.sincronizar_solicitudes_abiertas",
         "schedule": 15 * 60,
+    },
+    # Internal alerts for contracts about to expire (HU-53), in CELERY_TIMEZONE.
+    "detectar-vencimientos-contratos": {
+        "task": "crm_easyoffice.contratos.tasks.detectar_vencimientos_diarios",
+        "schedule": crontab(hour=8, minute=0),
     },
 }
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events

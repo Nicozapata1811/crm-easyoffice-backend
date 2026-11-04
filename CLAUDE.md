@@ -359,11 +359,39 @@ Tests use the simulated converter.
     no PATCH or DELETE), filters `buscar`, `estado`, `marca`, `sucursal`,
     `anio`; `GET /api/contratos/opciones/` lists brands, accounts, terms,
     cycles, branches and services for the form. Nobody holds
-    `delete_contrato`.
+    `delete_contrato`. `?cliente=` lists one client's. The Administrador sets
+    the responsible executive with `POST …/{id}/responsable/`
+    (`asignar_responsable_contrato`, because Ejecutivo holds `change_contrato`);
+    `GET …/ejecutivos/` lists who may be it. It can change but not be cleared,
+    and only on a draft or a contract in force (`409` otherwise).
   - Tests that need committed rows (the folio concurrency tests) keep the
     plain `django_db` marker and commit from another connection, cleaning up
     their own rows: a transactional test flushes the seeded catalogue, and
     with `--reuse-db` every later run would start without it.
+- **Expiry alerts** (`contratos.AlertaVencimiento`, HU-42, HU-53, RN-09): in-app
+  only, no email.
+  - Thresholds are `ventas.Servicio.umbrales_aviso_dias` (admin, initially 60,
+    30, 15, 7; `ArrayField`, hence `django.contrib.postgres` in `INSTALLED_APPS`).
+    A contract uses the union of its lines' services' (ASSUMPTION).
+  - `contratos.services.detectar_vencimientos(fecha)` creates one alert per
+    contract, expiry and threshold, only the most urgent crossed threshold and
+    only if more urgent than any already there (`umbral_a_alertar`), so a late
+    run never makes a burst. Celery Beat runs
+    `contratos.tasks.detectar_vencimientos_diarios` at 08:00 Chile time. Running
+    it twice creates nothing.
+  - Every contract in force alerts before its stored `fecha_vencimiento`,
+    auto-renewing or not. Drafts, annulled, terminated, not started, past expiry
+    and renewed ones do not. The rolling term after the first expiry is not
+    modelled (RN-10, TA-17).
+  - `alertas_visibles(usuario)` is the visibility rule: the contract's responsible;
+    with none, every Ejecutivo; all with `ver_todas_alertasvencimiento`.
+  - API: `/api/alertas-vencimiento/` (list, filters `estado`, `mias`, `umbral`,
+    `vence_desde`, `vence_hasta`), `…/resumen/` and `…/{id}/gestionar/` (`409` a
+    second time). A handled alert never goes back to pending.
+  - Nothing terminates a contract in force yet, so a pending alert cannot outlive
+    its contract. Whoever builds termination must close its alerts.
+  - `seed_demo_vencimientos` (DEBUG or `--force`, never production settings) loads
+    contracts expiring in 5, 14, 29 and 59 days for EVI-T14.
 - **Dashboard** (`panel/`, HU-41, RF-14): `GET /api/panel/indicadores/` and
   `.../exportar/` (`.xlsx` via openpyxl), both requiring `core.view_dashboard`,
   held by Administrador and Ejecutivo. `panel/ejemplo.py` is gone: every figure
@@ -380,7 +408,8 @@ Tests use the simulated converter.
     - `contratos.services.resumen_vencimientos(fecha, dias_aviso)`: counts
       contracts, not lines. `activos` = `contratos_vigentes(fecha)`;
       `por_vencer` = active, expiring within `dias_aviso` days (both ends
-      inclusive), no renewal; `vencidos` = `vigente`, started, no automatic
+      inclusive), auto-renewing or not, as the expiry alerts, with no renewal
+      contract pointing at it; `vencidos` = `vigente`, started, no automatic
       renewal, past expiry, not terminated (`terminado_en` empty), not
       renewed. A contract is renewed when a non-void contract points to it
       through `contrato_anterior`. Drafts, terminated and void contracts never
@@ -406,9 +435,10 @@ Tests use the simulated converter.
     has no "Valor de ejemplo", and its Detalle column says "Al dd-mm-aaaa" for
     point-in-time figures and "Pagadas en línea, en el período" for sales.
   - Assumptions, pending validation with Easy Office: contracts are counted,
-    not services; an auto-renewing contract stays active after its first term
-    and never reappears as `por_vencer` (RN-10, TA-17); the 30-day window
-    (HU-42); who the executive of an online sale is (these four carry
+    not services; an auto-renewing contract stays active after its stored expiry,
+    with no later expiry to count, because the rolling term is not modelled
+    (RN-10, TA-17); the 30-day window; who the executive of an online sale is
+    (these four carry
     `ASSUMPTION` in code); and backoffice contracts without an online payment
     have no `Venta`, so they do not count as sales (a gap of the data model,
     stated in the API docs and the UI, not marked in code).
@@ -420,7 +450,7 @@ Tests use the simulated converter.
     (a case and its dated history), `ventas.tests.factories.venta_pagada`
     and `documentos.tests.factories.documento_generado` (a row on the seeded
     PLT-01 v1, no file rendered). A query-count test keeps the dashboard at
-    a fixed number of queries. The whole suite has 799 tests (firma_sandbox/ has its own 64).
+    a fixed number of queries. The whole suite has 912 tests (firma_sandbox/ has its own 64).
 
 - **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
   `precio_confirmado=False`), `CicloPago` (único … anual, HU-23), `Venta`,
@@ -734,7 +764,8 @@ Done:
 - the advanced signature through an HTTP provider, end to end against the
   test PSC (`firma_sandbox/`, IN-01), `asistida` by default.
 
-Still to build: user management (HU-02). The audit log (HU-30, HU-31) is done.
+Still to build: user management (HU-02). The audit log (HU-30, HU-31) and the
+expiry alerts (HU-42, HU-53) are done.
 
 **Still unknown — do not invent answers:**
 

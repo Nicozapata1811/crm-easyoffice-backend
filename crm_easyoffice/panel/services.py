@@ -26,8 +26,8 @@ if TYPE_CHECKING:
 
     from crm_easyoffice.ventas.models import Venta
 
-# ASSUMPTION: pending validation with Easy Office. HU-42 proposes 60, 30, 15
-# and 7 days of notice; the dashboard counts the 30-day window.
+# ASSUMPTION: pending validation with Easy Office. Alerts follow each service's
+# thresholds (HU-42); the dashboard counts one fixed 30-day window.
 DIAS_AVISO = 30
 EN_LINEA = "En línea (sin ejecutivo)"
 

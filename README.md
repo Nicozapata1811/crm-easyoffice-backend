@@ -526,10 +526,12 @@ entrega las suyas por sus servicios. Claves nuevas: `fecha_referencia` y
 - `servicios` cuenta **contratos** (un folio, un vencimiento), no sus líneas.
   `activos` son los vigentes a la fecha (`contratos.services.contratos_vigentes`);
   `por_vencer`, los que vencen dentro de `dias_aviso` días (ambos extremos
-  incluidos) y no tienen renovación; `vencidos`, los vencidos sin renovación
-  automática que nadie terminó ni renovó. Borradores, terminados y anulados no
-  cuentan. Un contrato con renovación automática sigue activo tras su primer
-  término y no vuelve a aparecer por vencer (RN-10, TA-17 abiertos).
+  incluidos) y no tienen un contrato de renovación, con o sin renovación
+  automática, igual que las alertas de vencimiento; `vencidos`, los vencidos sin
+  renovación automática que nadie terminó ni renovó. Borradores, terminados y
+  anulados no cuentan. Un contrato con renovación automática sigue activo después
+  de su vencimiento guardado, y no hay otro vencimiento que contar: el plazo
+  rodante no está modelado (RN-10, TA-17 abiertos).
 - `ventas` suma las ventas **pagadas** en el período por `pagada_en`;
   reembolsadas y anuladas no cuentan. `por_servicio` agrupa por servicio del
   catálogo (`cantidad` = ventas que lo incluyen). `por_ejecutivo` usa el
@@ -549,7 +551,54 @@ ejemplo". La columna Detalle dice "Al dd-mm-aaaa" en las cifras a una fecha y
 "Pagadas en línea, en el período" en las ventas.
 
 `dias_aviso` es la ventana de "por vencer"; 30 días es una suposición pendiente
-de validar (HU-42 propone 60, 30, 15 y 7).
+de validar. Las alertas siguen los umbrales de cada servicio (HU-42).
+
+### Contratos y alertas de vencimiento (HU-42, HU-48, HU-53, HU-55 · RF-11, RF-12, RF-13, RF-30, RF-32)
+
+Cada servicio del catálogo tiene `umbrales_aviso_dias`, editable en el admin:
+inicialmente 60, 30, 15 y 7 días. Vacío significa que ese servicio no alerta. Un
+contrato usa la unión de los umbrales de sus líneas. Es una suposición pendiente
+de validar con Easy Office.
+
+Cada día a las 08:00, hora de Chile, Celery Beat ejecuta
+`contratos.tasks.detectar_vencimientos_diarios`:
+
+- **Quién alerta.** Todo contrato en vigor antes de su vencimiento guardado (RN-37),
+  con o sin renovación automática: el ejecutivo gestiona el pago o la renovación.
+- **Quién nunca alerta.** Borradores, anulados, terminados, contratos que aún no
+  empiezan, vencidos y renovados (otro contrato no anulado lo indica como anterior).
+- **Una alerta por contrato, vencimiento y umbral**, no por línea. Se cruza un umbral
+  cuando los días restantes son como máximo su valor.
+- **Detección tardía.** Si cruzó varios a la vez, solo se crea el más urgente: con 20
+  días restantes, el de 30. Ejecutarla dos veces el mismo día no crea nada.
+- **Solo en la aplicación** (RN-09): no se envía correo.
+
+El plazo rodante después del primer vencimiento no está modelado (RN-10, TA-17): un
+contrato con renovación automática deja de alertar pasado su vencimiento guardado.
+
+**Quién ve qué.** El responsable del contrato; si no tiene (contratos del portal),
+todo Ejecutivo. El Administrador ve todas. La regla está en el queryset y sigue al
+contrato, así que cambiar el responsable cambia quién ve sus alertas.
+
+| Método y ruta | Permiso | Respuesta |
+|---|---|---|
+| `GET /api/alertas-vencimiento/` | `contratos.view_alertavencimiento` | Lista paginada de 25, por vencimiento. Filtros `estado`, `mias`, `umbral`, `vence_desde`, `vence_hasta`; uno inválido responde `400` en su campo |
+| `GET /api/alertas-vencimiento/resumen/` | `contratos.view_alertavencimiento` | `{"pendientes": 3, "umbrales": [60, 30]}`: lo que el usuario ve |
+| `POST /api/alertas-vencimiento/{id}/gestionar/` | `contratos.gestionar_alertavencimiento` | `{"nota": "…"}` opcional, hasta 1000 caracteres. `409` con `codigo: alerta_ya_gestionada` la segunda vez; `404` si no la puede ver |
+| `GET /api/contratos/?cliente={id}` | `contratos.view_contrato` | Los contratos del cliente, con `dias_restantes` (nulo si no está vigente, negativo si ya venció) y `ejecutivo_responsable_nombre` |
+| `GET /api/contratos/ejecutivos/` | `contratos.asignar_responsable_contrato` | `[{"id": 1, "nombre": "…"}]`: usuarios activos cuyo rol gestiona alertas |
+| `POST /api/contratos/{id}/responsable/` | `contratos.asignar_responsable_contrato` | `{"ejecutivo": 1}`. `400` si no puede serlo; `409` con `codigo: contrato_no_editable` si está anulado o terminado |
+
+Administrador y Ejecutivo ven y gestionan alertas. `ver_todas_alertasvencimiento` y
+`asignar_responsable_contrato` son solo del Administrador; el Ejecutivo tiene
+`change_contrato`, por eso fijar el responsable tiene su propio permiso. Una alerta
+gestionada no vuelve a pendiente, y nadie crea ni edita alertas a mano. La nota queda
+en el registro de auditoría, que no se puede purgar.
+
+`manage.py seed_demo_vencimientos` carga contratos que vencen en 5, 14, 29 y 59 días
+(EVI-T14). Necesita `seed_demo_usuarios`, y `--force` con `DEBUG` apagado; con la
+configuración de producción se niega siempre. Volver a ejecutarlo mueve las fechas de
+los mismos contratos a hoy. No crea alertas: las crea la tarea.
 
 ### Registro de auditoría (HU-30, HU-31 · RF-15, RF-16, RF-17, RS-04)
 
@@ -774,6 +823,8 @@ Sprint 2 (6 – 17 de octubre de 2026). Ya están:
   modificación, y su consulta para el Administrador (HU-30, HU-31);
 - la firma electrónica avanzada a través de un proveedor, probada contra un
   PSC de pruebas propio y sin validez legal (IN-01);
+- las alertas internas de vencimiento de contratos, con detección diaria (HU-42,
+  HU-53);
 - un ambiente de staging con despliegue automático ([guía](docs/staging.md)).
 
 Siguen pendientes los campos definitivos del cliente, los estados de los

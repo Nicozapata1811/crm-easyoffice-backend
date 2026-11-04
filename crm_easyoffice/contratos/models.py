@@ -161,6 +161,12 @@ class Contrato(TimestampedModel):
         verbose_name = _("contrato")
         verbose_name_plural = _("contratos")
         ordering = ["-created_at", "-pk"]
+        permissions = [
+            (
+                "asignar_responsable_contrato",
+                _("Can set a contract's responsible executive"),
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["anio_folio", "correlativo"],
@@ -243,3 +249,86 @@ class ServicioContratado(models.Model):
 
     def __str__(self) -> str:
         return f"{self.contrato} · {self.nombre}"
+
+
+class AlertaVencimiento(TimestampedModel):
+    """An internal alert that a contract is about to expire (HU-42, RN-09).
+
+    One per contract, expiry and threshold, not per service line. Who sees it
+    comes from the contract's responsible executive at reading time, so it
+    follows a change of responsible. A handled alert never goes back to pending.
+    """
+
+    class Estado(models.TextChoices):
+        PENDIENTE = "pendiente", _("pendiente")
+        GESTIONADA = "gestionada", _("gestionada")
+
+    contrato = models.ForeignKey(
+        Contrato,
+        verbose_name=_("contrato"),
+        on_delete=models.PROTECT,
+        related_name="alertas",
+    )
+    umbral_dias = models.PositiveSmallIntegerField(_("umbral (días)"))
+    fecha_vencimiento = models.DateField(
+        _("fecha de vencimiento"),
+        help_text=_("The contract's expiry when the alert was created."),
+    )
+    estado = models.CharField(
+        _("estado"),
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.PENDIENTE,
+    )
+    gestionada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name=_("gestionada por"),
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="alertas_gestionadas",
+    )
+    gestionada_en = models.DateTimeField(_("gestionada en"), null=True, blank=True)
+    nota = models.TextField(_("nota"), blank=True)
+
+    class Meta:
+        verbose_name = _("alerta de vencimiento")
+        verbose_name_plural = _("alertas de vencimiento")
+        ordering = ["fecha_vencimiento", "umbral_dias", "pk"]
+        permissions = [
+            ("gestionar_alertavencimiento", _("Can mark an expiry alert as handled")),
+            (
+                "ver_todas_alertasvencimiento",
+                _("Can see every expiry alert, whoever is responsible"),
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["estado", "fecha_vencimiento"],
+                name="alerta_estado_vencimiento",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["contrato", "fecha_vencimiento", "umbral_dias"],
+                name="alerta_unica_por_contrato_vencimiento_umbral",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        estado="pendiente",
+                        gestionada_por__isnull=True,
+                        gestionada_en__isnull=True,
+                    )
+                    | Q(
+                        estado="gestionada",
+                        gestionada_por__isnull=False,
+                        gestionada_en__isnull=False,
+                    )
+                ),
+                name="alerta_gestionada_con_quien_y_cuando",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.contrato} · {self.umbral_dias} días"

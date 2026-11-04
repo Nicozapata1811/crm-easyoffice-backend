@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -10,13 +13,18 @@ from crm_easyoffice.clientes.models import Cliente
 from crm_easyoffice.clientes.models import RepresentanteLegal
 from crm_easyoffice.configuracion.models import CuentaPago
 from crm_easyoffice.configuracion.models import Marca
+from crm_easyoffice.contratos.models import AlertaVencimiento
 from crm_easyoffice.contratos.models import Contrato
 from crm_easyoffice.contratos.models import ServicioContratado
 from crm_easyoffice.contratos.services import LineaContrato
 from crm_easyoffice.contratos.services import crear_contrato
 from crm_easyoffice.inmuebles.models import Oficina
+from crm_easyoffice.users.models import User
 from crm_easyoffice.ventas.models import CicloPago
 from crm_easyoffice.ventas.models import Servicio
+
+if TYPE_CHECKING:
+    from datetime import date
 
 MONTO = {"max_digits": 12, "decimal_places": 0}
 
@@ -51,10 +59,23 @@ class ClienteContratoSerializer(serializers.Serializer):
     nombre = serializers.CharField()
 
 
+def _nombre_usuario(usuario: User | None) -> str | None:
+    if usuario is None:
+        return None
+    return usuario.name or usuario.email
+
+
+def _dias_hasta(vencimiento: date) -> int:
+    """Days from today, in Chile's calendar, to ``vencimiento``."""
+    return (vencimiento - timezone.localdate()).days
+
+
 class ContratoSerializer(serializers.ModelSerializer[Contrato]):
     marca = serializers.SerializerMethodField()
     cliente = serializers.SerializerMethodField()
     servicios = ServicioContratadoSerializer(many=True, read_only=True)
+    ejecutivo_responsable_nombre = serializers.SerializerMethodField()
+    dias_restantes = serializers.SerializerMethodField()
 
     class Meta:
         model = Contrato
@@ -77,6 +98,8 @@ class ContratoSerializer(serializers.ModelSerializer[Contrato]):
             "email_aviso",
             "movil_aviso",
             "ejecutivo_responsable",
+            "ejecutivo_responsable_nombre",
+            "dias_restantes",
             "terminado_en",
             "contrato_anterior",
             "servicios",
@@ -92,6 +115,124 @@ class ContratoSerializer(serializers.ModelSerializer[Contrato]):
     def get_cliente(self, contrato: Contrato) -> dict[str, Any]:
         cliente = contrato.cliente
         return {"id": cliente.pk, "codigo": cliente.codigo, "nombre": cliente.nombre}
+
+    def get_ejecutivo_responsable_nombre(self, contrato: Contrato) -> str | None:
+        return _nombre_usuario(contrato.ejecutivo_responsable)
+
+    def get_dias_restantes(self, contrato: Contrato) -> int | None:
+        """Days to the stored expiry, negative once past. Only a contract in force."""
+        if contrato.estado != Contrato.Estado.VIGENTE:
+            return None
+        return _dias_hasta(contrato.fecha_vencimiento)
+
+
+class EjecutivoSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    nombre = serializers.SerializerMethodField()
+
+    def get_nombre(self, usuario: User) -> str:
+        return _nombre_usuario(usuario) or ""
+
+
+class AsignarResponsableSerializer(serializers.Serializer):
+    ejecutivo = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+
+
+class FiltrosAlertasSerializer(serializers.Serializer):
+    """Query parameters of the alert list; dates are inclusive."""
+
+    estado = serializers.ChoiceField(
+        required=False,
+        choices=AlertaVencimiento.Estado.choices,
+    )
+    mias = serializers.BooleanField(required=False)
+    umbral = serializers.IntegerField(required=False, min_value=1)
+    vence_desde = serializers.DateField(required=False)
+    vence_hasta = serializers.DateField(required=False)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        desde, hasta = attrs.get("vence_desde"), attrs.get("vence_hasta")
+        if desde and hasta and desde > hasta:
+            mensaje = _("La fecha final no puede ser anterior a la inicial.")
+            raise serializers.ValidationError({"vence_hasta": mensaje})
+        return attrs
+
+
+class ResponsableSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    nombre = serializers.CharField()
+
+
+class AlertaVencimientoSerializer(serializers.ModelSerializer[AlertaVencimiento]):
+    folio = serializers.CharField(source="contrato.folio")
+    renovacion_automatica = serializers.BooleanField(
+        source="contrato.renovacion_automatica",
+    )
+    cliente = serializers.SerializerMethodField()
+    servicios = serializers.SerializerMethodField()
+    ejecutivo_responsable = serializers.SerializerMethodField()
+    dias_restantes = serializers.SerializerMethodField()
+    gestionada_por_nombre = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AlertaVencimiento
+        fields = [
+            "id",
+            "contrato",
+            "folio",
+            "renovacion_automatica",
+            "cliente",
+            "servicios",
+            "ejecutivo_responsable",
+            "umbral_dias",
+            "fecha_vencimiento",
+            "dias_restantes",
+            "estado",
+            "created_at",
+            "gestionada_por_nombre",
+            "gestionada_en",
+            "nota",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(ClienteContratoSerializer)
+    def get_cliente(self, alerta: AlertaVencimiento) -> dict[str, Any]:
+        cliente = alerta.contrato.cliente
+        return {"id": cliente.pk, "codigo": cliente.codigo, "nombre": cliente.nombre}
+
+    def get_servicios(self, alerta: AlertaVencimiento) -> list[str]:
+        return [linea.nombre for linea in alerta.contrato.servicios.all()]
+
+    @extend_schema_field(ResponsableSerializer(allow_null=True))
+    def get_ejecutivo_responsable(
+        self,
+        alerta: AlertaVencimiento,
+    ) -> dict[str, Any] | None:
+        usuario = alerta.contrato.ejecutivo_responsable
+        if usuario is None:
+            return None
+        return {"id": usuario.pk, "nombre": _nombre_usuario(usuario)}
+
+    def get_dias_restantes(self, alerta: AlertaVencimiento) -> int:
+        """Days to the alert's expiry, negative once past."""
+        return _dias_hasta(alerta.fecha_vencimiento)
+
+    def get_gestionada_por_nombre(self, alerta: AlertaVencimiento) -> str | None:
+        return _nombre_usuario(alerta.gestionada_por)
+
+
+class GestionarAlertaSerializer(serializers.Serializer):
+    nota = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        default="",
+    )
+
+
+class ResumenAlertasSerializer(serializers.Serializer):
+    pendientes = serializers.IntegerField()
+    umbrales = serializers.ListField(child=serializers.IntegerField())
 
 
 class LineaContratoSerializer(serializers.Serializer):

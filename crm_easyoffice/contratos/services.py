@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from typing import Any
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count
@@ -30,11 +31,13 @@ from crm_easyoffice.ventas.services import servicios_contratables
 
 from .folio import formatear_folio
 from .folio import siguiente_correlativo
+from .models import AlertaVencimiento
 from .models import Contrato
 from .models import DuracionContrato
 from .models import ServicioContratado
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from collections.abc import Sequence
 
     from django.db.models import QuerySet
@@ -70,7 +73,11 @@ class LineaContrato:
 
 
 class ContratoNoEditableError(Exception):
-    """Only a draft contract can be changed, activated or annulled this way."""
+    """The contract's state does not allow this change."""
+
+
+class AlertaYaGestionadaError(Exception):
+    """A handled alert stays handled."""
 
 
 def calcular_vencimiento(inicio: date, meses: int) -> date:
@@ -465,13 +472,23 @@ def contratos_vigentes(fecha: date) -> QuerySet[Contrato]:
     return _iniciados(fecha).filter(_en_vigor(fecha))
 
 
+def _renovado() -> Exists:
+    """A non-annulled contract points at this one (RN-10)."""
+    return Exists(
+        Contrato.objects.filter(contrato_anterior=OuterRef("pk")).exclude(
+            estado=Contrato.Estado.ANULADO,
+        ),
+    )
+
+
 def resumen_vencimientos(fecha: date, dias_aviso: int) -> dict[str, int]:
     """Count contracts in force, about to expire and expired on ``fecha`` (RF-14).
 
     Drafts, terminated and annulled contracts never count, nor does a
     contract that has not started. ``activos`` are the contracts in force
-    (``contratos_vigentes``); ``por_vencer`` those of them whose term ends
-    within ``dias_aviso`` days, both ends inclusive; ``vencidos`` the
+    (``contratos_vigentes``); ``por_vencer`` those of them whose stored expiry
+    falls within ``dias_aviso`` days, both ends inclusive, whether they renew
+    automatically or not, as ``detectar_vencimientos`` does; ``vencidos`` the
     contracts past their expiry that do not renew automatically and were
     neither terminated nor renewed, which an executive must act on. A
     contract counts as renewed when a non-annulled contract points at it
@@ -479,15 +496,11 @@ def resumen_vencimientos(fecha: date, dias_aviso: int) -> dict[str, int]:
 
     ASSUMPTION: pending validation with Easy Office. The dashboard counts
     contracts (one folio, one expiry) rather than their service lines. An
-    automatically renewing contract stays in force after its first term,
-    as in ``contratos_vigentes``, and is never "por vencer" again: its
-    rolling term end is not modelled until renewals are (RN-10, TA-17).
+    automatically renewing contract stays in force after its stored expiry, as
+    in ``contratos_vigentes``, with no later expiry to count: the rolling term
+    is not modelled until renewals are (RN-10, TA-17).
     """
-    renovado = Exists(
-        Contrato.objects.filter(contrato_anterior=OuterRef("pk")).exclude(
-            estado=Contrato.Estado.ANULADO,
-        ),
-    )
+    renovado = _renovado()
     en_vigor = _en_vigor(fecha)
     sin_renovar = Q(renovado=False)
     en_aviso = Q(
@@ -507,6 +520,166 @@ def resumen_vencimientos(fecha: date, dias_aviso: int) -> dict[str, int]:
             vencidos=Count("pk", filter=sin_renovar & vencido),
         )
     )
+
+
+def umbral_a_alertar(
+    dias_restantes: int,
+    umbrales: Iterable[int],
+    existentes: Iterable[int],
+) -> int | None:
+    """The one threshold to alert now, or ``None``.
+
+    A threshold is crossed when the days left are at most its value. Only the
+    most urgent crossed one counts, so a contract first seen late gets one
+    alert, never a burst, and only if it is more urgent than any alert it
+    already has for this expiry.
+    """
+    cruzados = [umbral for umbral in umbrales if dias_restantes <= umbral]
+    if not cruzados:
+        return None
+    urgente = min(cruzados)
+    return urgente if urgente < min(existentes, default=urgente + 1) else None
+
+
+def detectar_vencimientos(fecha: date) -> int:
+    """Create the alerts due on ``fecha`` and return how many (HU-53, RF-12).
+
+    Every contract in force alerts before its stored expiry, whether it renews
+    automatically or not: the executive handles payment or renewal. A renewed
+    contract does not, as in ``resumen_vencimientos``. Each contract uses the
+    union of its services' thresholds. Running it twice creates nothing new, and
+    the unique constraint settles two runs at once.
+
+    ASSUMPTION: pending validation with Easy Office. The rolling term after the
+    first expiry is not modelled, so a contract past its stored expiry stops
+    alerting (RN-10, TA-17).
+    """
+    contratos = (
+        contratos_vigentes(fecha)
+        .filter(~_renovado(), fecha_vencimiento__gte=fecha)
+        .prefetch_related("servicios__servicio", "alertas")
+    )
+    nuevas = []
+    for contrato in contratos:
+        umbral = umbral_a_alertar(
+            (contrato.fecha_vencimiento - fecha).days,
+            {
+                dias
+                for linea in contrato.servicios.all()
+                for dias in linea.servicio.umbrales_aviso_dias
+            },
+            [
+                alerta.umbral_dias
+                for alerta in contrato.alertas.all()
+                if alerta.fecha_vencimiento == contrato.fecha_vencimiento
+            ],
+        )
+        if umbral is not None:
+            nuevas.append(
+                AlertaVencimiento(
+                    contrato=contrato,
+                    umbral_dias=umbral,
+                    fecha_vencimiento=contrato.fecha_vencimiento,
+                ),
+            )
+    with transaction.atomic():
+        AlertaVencimiento.objects.bulk_create(nuevas, ignore_conflicts=True)
+    return len(nuevas)
+
+
+def alertas_visibles(usuario: User) -> QuerySet[AlertaVencimiento]:
+    """The alerts ``usuario`` may see, soonest expiry first.
+
+    The contract's responsible executive; with none (portal contracts), every
+    executive. The holder of ``ver_todas_alertasvencimiento`` sees all.
+    """
+    alertas = AlertaVencimiento.objects.all()
+    if usuario.has_perm("contratos.ver_todas_alertasvencimiento"):
+        return alertas
+    return alertas.filter(
+        Q(contrato__ejecutivo_responsable=usuario)
+        | Q(contrato__ejecutivo_responsable__isnull=True),
+    )
+
+
+def resumen_alertas(usuario: User) -> dict[str, Any]:
+    """Pending alerts ``usuario`` sees, and the thresholds their alerts carry."""
+    alertas = alertas_visibles(usuario)
+    return {
+        "pendientes": alertas.filter(estado=AlertaVencimiento.Estado.PENDIENTE).count(),
+        "umbrales": list(
+            alertas.order_by("-umbral_dias")
+            .values_list("umbral_dias", flat=True)
+            .distinct(),
+        ),
+    }
+
+
+def gestionar_alerta(
+    alerta: AlertaVencimiento,
+    usuario: User,
+    nota: str = "",
+) -> AlertaVencimiento:
+    """Mark an alert as handled, recording who, when and an optional note.
+
+    Raises:
+        AlertaYaGestionadaError: Someone already handled it.
+    """
+    with transaction.atomic():
+        alerta = AlertaVencimiento.objects.select_for_update().get(pk=alerta.pk)
+        if alerta.estado != AlertaVencimiento.Estado.PENDIENTE:
+            raise AlertaYaGestionadaError
+        alerta.estado = AlertaVencimiento.Estado.GESTIONADA
+        alerta.gestionada_por = usuario
+        alerta.gestionada_en = timezone.now()
+        alerta.nota = nota
+        alerta.save(
+            update_fields=[
+                "estado",
+                "gestionada_por",
+                "gestionada_en",
+                "nota",
+                "updated_at",
+            ],
+        )
+    return alerta
+
+
+def ejecutivos_asignables() -> QuerySet[User]:
+    """Who may be responsible for a contract: active users who handle alerts."""
+    return (
+        get_user_model()
+        .objects.filter(
+            is_active=True,
+            groups__permissions__codename="gestionar_alertavencimiento",
+            groups__permissions__content_type__app_label="contratos",
+        )
+        .order_by("name", "email")
+        .distinct()
+    )
+
+
+def asignar_responsable(contrato: Contrato, ejecutivo: User) -> Contrato:
+    """Set or change the contract's responsible executive.
+
+    ASSUMPTION: pending validation with Easy Office. It can be changed but not
+    cleared, and only on a draft or a contract in force.
+
+    Raises:
+        ContratoNoEditableError: The contract is terminated or annulled.
+        django.core.exceptions.ValidationError: Keyed by the offending field.
+    """
+    if not ejecutivos_asignables().filter(pk=ejecutivo.pk).exists():
+        raise ValidationError(
+            {"ejecutivo": _("This user cannot be responsible for a contract.")},
+        )
+    with transaction.atomic():
+        contrato = Contrato.objects.select_for_update().get(pk=contrato.pk)
+        if contrato.estado not in (Contrato.Estado.BORRADOR, Contrato.Estado.VIGENTE):
+            raise ContratoNoEditableError
+        contrato.ejecutivo_responsable = ejecutivo
+        contrato.save(update_fields=["ejecutivo_responsable", "updated_at"])
+    return contrato
 
 
 def ocupantes(inmueble: Oficina, fecha: date) -> list[Cliente]:

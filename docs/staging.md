@@ -207,11 +207,16 @@ docker compose -f docker-compose.staging.yml run --rm django python manage.py cr
 docker compose -f docker-compose.staging.yml run --rm django python manage.py seed_demo_usuarios --force
 docker compose -f docker-compose.staging.yml run --rm django python manage.py seed_demo_clientes --force
 docker compose -f docker-compose.staging.yml run --rm django python manage.py seed_demo_firma_avanzada --force
+docker compose -f docker-compose.staging.yml run --rm django python manage.py seed_demo_vencimientos --force
 ```
 
 `seed_demo_firma_avanzada` también carga las sucursales y bodegas de ejemplo, y
 deja los tipos de trámite con firma avanzada. Para volver a la firma asistida:
 `seed_demo_firma_avanzada --force --asistida`.
+
+`seed_demo_vencimientos` carga contratos que vencen en 5, 14, 29 y 59 días, para
+mostrar las alertas (EVI-T14). Las alertas las crea la tarea diaria de las 08:00.
+Volver a ejecutarlo mueve las fechas de esos contratos a hoy.
 
 | Usuario | Correo | Contraseña |
 |---|---|---|

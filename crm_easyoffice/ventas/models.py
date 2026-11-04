@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import uuid
 
+from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db import transaction
 from django.db.models import Q
@@ -13,6 +16,16 @@ from crm_easyoffice.clientes.models import Cliente
 from crm_easyoffice.core.models import TimestampedModel
 
 MONTO = {"max_digits": 12, "decimal_places": 0}
+
+
+def umbrales_por_defecto() -> list[int]:
+    """The notice a new catalogue service starts with, in days (RF-13)."""
+    return [60, 30, 15, 7]
+
+
+def validar_umbrales_distintos(umbrales: list[int]) -> None:
+    if len(umbrales) != len(set(umbrales)):
+        raise ValidationError(_("Each number of days may appear only once."))
 
 
 class CicloPago(TimestampedModel):
@@ -92,6 +105,19 @@ class Servicio(TimestampedModel):
     )
     orden = models.PositiveSmallIntegerField(_("orden"), default=0)
     activo = models.BooleanField(_("activo"), default=True)
+    # ASSUMPTION: pending validation with Easy Office. HU-42 gives these four
+    # days per service type; a contract uses the union of its lines' services.
+    umbrales_aviso_dias = ArrayField(
+        models.PositiveSmallIntegerField(validators=[MinValueValidator(1)]),
+        verbose_name=_("umbrales de aviso (días)"),
+        default=umbrales_por_defecto,
+        blank=True,
+        validators=[validar_umbrales_distintos],
+        help_text=_(
+            "Days before a contract's expiry to alert, separated by commas. "
+            "Empty: this service does not alert.",
+        ),
+    )
 
     class Meta:
         verbose_name = _("servicio")
