@@ -25,6 +25,8 @@ from crm_easyoffice.clientes.tests.factories import EmpresaFactory
 from crm_easyoffice.clientes.tests.factories import PersonaFactory
 from crm_easyoffice.clientes.tests.factories import RepresentanteLegalFactory
 from crm_easyoffice.configuracion.models import ConfigEmpresa
+from crm_easyoffice.contratos.models import AlertaVencimiento
+from crm_easyoffice.contratos.tests.factories import nuevo_contrato
 from crm_easyoffice.core.models import RegistroAuditoria
 from crm_easyoffice.core.validators import validate_rut
 from crm_easyoffice.documentos import formato
@@ -146,6 +148,16 @@ def caso() -> dict:
             "plantilla": {"codigo": "PLT-01", "version": 1, "sha256": "c" * 64},
         },
     )
+    contrato = nuevo_contrato(cliente=cliente)
+    AlertaVencimiento.objects.create(
+        contrato=contrato,
+        umbral_dias=30,
+        fecha_vencimiento=contrato.fecha_vencimiento,
+        estado=AlertaVencimiento.Estado.GESTIONADA,
+        gestionada_por=usuario,
+        gestionada_en=HOY,
+        nota="Sigrid Ventura pidió renovar por teléfono",
+    )
     return {
         "persona": persona,
         "empresa": empresa,
@@ -183,6 +195,7 @@ ORIGINALES = [
     "Ejecutivo Inventado",
     "Sigrid Ventura debe corregir su domicilio",
     "Sigrid Ventura rechazó la firma",
+    "Sigrid Ventura pidió renovar por teléfono",
 ]
 
 

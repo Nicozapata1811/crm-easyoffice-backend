@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from .models import AlertaVencimiento
 from .models import Contrato
 from .models import CorrelativoFolio
 from .models import DuracionContrato
@@ -64,3 +65,17 @@ class DuracionContratoAdmin(admin.ModelAdmin):
 @admin.register(CorrelativoFolio)
 class CorrelativoFolioAdmin(SoloLecturaMixin, admin.ModelAdmin):
     list_display = ["anio", "ultimo"]
+
+
+@admin.register(AlertaVencimiento)
+class AlertaVencimientoAdmin(SoloLecturaMixin, admin.ModelAdmin):
+    list_display = [
+        "contrato",
+        "umbral_dias",
+        "fecha_vencimiento",
+        "estado",
+        "gestionada_por",
+        "gestionada_en",
+    ]
+    list_filter = ["estado", "umbral_dias"]
+    search_fields = ["contrato__folio"]

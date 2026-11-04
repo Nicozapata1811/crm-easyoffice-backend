@@ -66,6 +66,7 @@ AUDITADAS = (
     Auditada("contratos_duracioncontrato", "contratos.duracioncontrato"),
     Auditada("contratos_contrato", "contratos.contrato"),
     Auditada("contratos_serviciocontratado", "contratos.serviciocontratado"),
+    Auditada("contratos_alertavencimiento", "contratos.alertavencimiento"),
     Auditada("tramites_tipotramite", "tramites.tipotramite"),
     Auditada("tramites_motivopendiente", "tramites.motivopendiente"),
     Auditada("tramites_tramite", "tramites.tramite"),
@@ -186,6 +187,7 @@ HISTORIAL = {
     ),
     "contratos.contrato": (
         Vinculo("contratos.serviciocontratado", "contrato_id", hija=True),
+        Vinculo("contratos.alertavencimiento", "contrato_id", hija=True),
     ),
     "documentos.documento": (
         Vinculo("documentos.firmante", "documento_id", hija=True),

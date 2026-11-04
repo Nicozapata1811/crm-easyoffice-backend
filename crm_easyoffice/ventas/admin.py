@@ -44,6 +44,7 @@ class ServicioAdmin(admin.ModelAdmin):
         "ciclo_pago_default",
         "se_vende_en_portal",
         "visible_en_portal",
+        "umbrales_aviso_dias",
         "orden",
         "activo",
     ]

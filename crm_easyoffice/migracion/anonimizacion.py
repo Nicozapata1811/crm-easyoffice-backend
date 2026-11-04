@@ -32,6 +32,7 @@ from crm_easyoffice.clientes.models import Persona
 from crm_easyoffice.clientes.models import RepresentanteLegal
 from crm_easyoffice.configuracion.models import ConfigEmpresa
 from crm_easyoffice.configuracion.models import CuentaPago
+from crm_easyoffice.contratos.models import AlertaVencimiento
 from crm_easyoffice.contratos.models import Contrato
 from crm_easyoffice.core.validators import compute_rut_check_digit
 from crm_easyoffice.core.validators import normalize_rut
@@ -122,6 +123,8 @@ ANONIMIZADOS = {
     "ventas.Pago": {"ultimos_digitos", "respuesta"},
     "ventas.EventoPago": {"payload"},
     "contratos.Contrato": {"email_aviso", "movil_aviso"},
+    # Free text an executive writes; it may name someone.
+    "contratos.AlertaVencimiento": {"nota"},
 }
 
 # Not identifying, so ``verificar`` skips them: a person's comuna may equal a
@@ -179,6 +182,7 @@ CONSERVADOS = {
     "ventas.EventoPago": {"proveedor", "evento", "clave_dedup", "resultado"},
     "contratos.Contrato": {"folio", "codigo_sucursal", "estado"},
     "contratos.ServicioContratado": {"nombre", "descripcion"},
+    "contratos.AlertaVencimiento": {"estado"},
 }
 
 # Holds only the client's choices (plan, branch, date), so it is kept, and still
@@ -728,6 +732,7 @@ def anonimizar() -> Resumen:
         (Firmante, "motivo_rechazo"),
         (SolicitudFirma, "detalle_error"),
         (OrdenPago, "detalle_error"),
+        (AlertaVencimiento, "nota"),
     ):
         _texto_fijo(copia, modelo, campo)
     Pago.objects.exclude(ultimos_digitos="").update(ultimos_digitos="0000")
