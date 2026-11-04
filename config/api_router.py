@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework.routers import SimpleRouter
 
 from crm_easyoffice.clientes.api.views import ClienteViewSet
+from crm_easyoffice.contratos.api.views import AlertaVencimientoViewSet
 from crm_easyoffice.contratos.api.views import ContratoViewSet
 from crm_easyoffice.tramites.api.views import TramiteViewSet
 from crm_easyoffice.users.api.views import UserViewSet
@@ -14,6 +15,11 @@ router.register("users", UserViewSet)
 router.register("clientes", ClienteViewSet)
 router.register("ventas", VentaViewSet)
 router.register("contratos", ContratoViewSet)
+router.register(
+    "alertas-vencimiento",
+    AlertaVencimientoViewSet,
+    basename="alerta-vencimiento",
+)
 router.register("tramites", TramiteViewSet)
 
 
