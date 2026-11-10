@@ -44,7 +44,15 @@ class ItemVentaSerializer(serializers.ModelSerializer[ItemVenta]):
 
     class Meta:
         model = ItemVenta
-        fields = ["servicio", "nombre", "precio_unitario", "cantidad", "subtotal"]
+        fields = [
+            "servicio",
+            "nombre",
+            "precio_unitario",
+            "cantidad",
+            "subtotal",
+            "neto",
+            "iva",
+        ]
         read_only_fields = fields
 
 
@@ -152,6 +160,8 @@ class VentaSerializer(serializers.ModelSerializer[Venta]):
             "id",
             "folio",
             "estado",
+            "neto",
+            "iva",
             "total",
             "pagada_en",
             "created_at",
@@ -177,6 +187,8 @@ class VentaBackofficeSerializer(serializers.ModelSerializer[Venta]):
             "id",
             "folio",
             "estado",
+            "neto",
+            "iva",
             "total",
             "pagada_en",
             "created_at",

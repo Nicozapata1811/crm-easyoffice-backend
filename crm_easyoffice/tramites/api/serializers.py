@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from crm_easyoffice.clientes.api.serializers import RutField
+from crm_easyoffice.clientes.services import tiene_cuenta_portal
+from crm_easyoffice.tramites.formularios import formulario_de
 from crm_easyoffice.tramites.models import EventoTramite
 from crm_easyoffice.tramites.models import Tramite
 from crm_easyoffice.tramites.services import FALTA_INFORMACION
@@ -20,6 +20,10 @@ from crm_easyoffice.tramites.services import situacion
 from crm_easyoffice.ventas.api.serializers import ItemVentaSerializer
 from crm_easyoffice.ventas.models import Venta
 
+from .contratante import EmpresaContratanteSerializer
+from .contratante import PersoneriaSerializer
+from .contratante import RepresentanteContratanteSerializer
+
 MONTO = {"max_digits": 12, "decimal_places": 0}
 
 # A Chilean mobile: 9 and eight more digits. The contract prefixes "+56".
@@ -31,37 +35,6 @@ MOVIL = r"^9\d{8}$"
 # ---------------------------------------------------------------------------
 # Input: the domicile form (section A of PLT-01)
 # ---------------------------------------------------------------------------
-
-
-class EmpresaContratanteSerializer(serializers.Serializer):
-    rut = RutField()
-    razon_social = serializers.CharField(max_length=255)
-    giro = serializers.CharField(max_length=255)
-
-
-class RepresentanteContratanteSerializer(serializers.Serializer):
-    rut = RutField()
-    nombres = serializers.CharField(max_length=100)
-    apellido_paterno = serializers.CharField(max_length=100)
-    apellido_materno = serializers.CharField(
-        max_length=100,
-        required=False,
-        allow_blank=True,
-        default="",
-    )
-    domicilio = serializers.CharField(max_length=255)
-    comuna = serializers.CharField(max_length=100)
-    region = serializers.CharField(max_length=100)
-
-
-class PersoneriaSerializer(serializers.Serializer):
-    fecha_instrumento = serializers.DateField()
-    sitio_o_notaria = serializers.CharField(max_length=255)
-
-    def validate_fecha_instrumento(self, valor):
-        if valor > timezone.localdate():
-            raise serializers.ValidationError(_("The date cannot be in the future."))
-        return valor
 
 
 class DomicilioSerializer(serializers.Serializer):
@@ -221,6 +194,10 @@ class FormularioBackofficeSerializer(serializers.Serializer):
     lineas = LineaFormularioSerializer(many=True)
     ciclos_pago = CicloSerializer(many=True)
     datos = serializers.JSONField(allow_null=True)
+    # A type without a contract (PLT-03 …): which form to draw, and what
+    # confirming its draft charges (servicio, neto, iva, total).
+    formulario = serializers.CharField(allow_null=True)
+    precio = serializers.JSONField(allow_null=True)
 
 
 class FormularioPortalSerializer(serializers.Serializer):
@@ -239,6 +216,33 @@ class FormularioPortalSerializer(serializers.Serializer):
 class TipoTramiteSerializer(serializers.Serializer):
     codigo = serializers.CharField()
     nombre = serializers.CharField()
+    tipos_cliente = serializers.SerializerMethodField()
+    formulario = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_tipos_cliente(self, tipo) -> list[str]:
+        return list(tipo.configuracion.get("tipos_cliente", []))
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_formulario(self, tipo) -> str | None:
+        """The template code whose own form the type uses, or None (generic)."""
+        return tipo.configuracion.get("plantilla") if formulario_de(tipo) else None
+
+
+class PersonaTramiteSerializer(serializers.Serializer):
+    """A person on record, for a request form's party block."""
+
+    rut = serializers.CharField()
+    nombres = serializers.CharField()
+    apellido_paterno = serializers.CharField()
+    apellido_materno = serializers.CharField()
+    nacionalidad = serializers.CharField()
+    estado_civil = serializers.CharField()
+    profesion = serializers.CharField()
+    domicilio = serializers.CharField()
+    comuna = serializers.CharField()
+    region = serializers.CharField()
+    email = serializers.CharField()
 
 
 class MotivoSerializer(serializers.Serializer):
@@ -252,7 +256,7 @@ class VentaTramiteSerializer(serializers.ModelSerializer[Venta]):
 
     class Meta:
         model = Venta
-        fields = ["id", "folio", "estado", "total", "items"]
+        fields = ["id", "folio", "estado", "neto", "iva", "total", "items"]
         read_only_fields = fields
 
 
@@ -283,11 +287,12 @@ class EventoBackofficeSerializer(serializers.ModelSerializer[EventoTramite]):
 def _accion_cliente(tramite: Tramite) -> str | None:
     """What the portal asks the client to do next, if anything.
 
-    A backoffice case is the executive's to move: the client only follows it.
+    A backoffice case is the executive's to move: the client only follows it,
+    except to pay the sale its confirmed draft created (PLT-03 …).
     """
-    if tramite.canal == Tramite.Canal.BACKOFFICE:
-        return None
     _, motivo = situacion(tramite)
+    if tramite.canal == Tramite.Canal.BACKOFFICE:
+        return "pagar" if motivo == PAGO and tramite.venta_id else None
     if motivo == REVISION_BORRADOR:
         return "revisar_borrador"
     if motivo == PAGO:
@@ -306,6 +311,7 @@ class TramiteSerializer(serializers.ModelSerializer[Tramite]):
     accion_cliente = serializers.SerializerMethodField()
     editable = serializers.SerializerMethodField()
     contrato = serializers.SerializerMethodField()
+    resumen = serializers.SerializerMethodField()
     venta = VentaTramiteSerializer(allow_null=True)
     eventos = EventoPortalSerializer(many=True)
 
@@ -322,6 +328,7 @@ class TramiteSerializer(serializers.ModelSerializer[Tramite]):
             "editable",
             "datos",
             "contrato",
+            "resumen",
             "venta",
             "eventos",
             "created_at",
@@ -344,6 +351,16 @@ class TramiteSerializer(serializers.ModelSerializer[Tramite]):
             tramite.venta is not None and tramite.venta.estado == Venta.Estado.PAGADA
         )
         return not pagada and (INICIADO, None) in TRANSICIONES[situacion(tramite)]
+
+    @extend_schema_field(
+        serializers.ListField(
+            child=serializers.DictField(child=serializers.CharField()),
+        ),
+    )
+    def get_resumen(self, tramite: Tramite) -> list[dict[str, str]]:
+        """A case without a contract in ``{etiqueta, valor}`` lines; else empty."""
+        formulario = formulario_de(tramite.tipo)
+        return formulario.resumen(tramite) if formulario else []
 
     @extend_schema_field(serializers.JSONField(allow_null=True))
     def get_contrato(self, tramite: Tramite) -> dict[str, Any] | None:
@@ -399,6 +416,7 @@ class TramiteBackofficeSerializer(TramiteSerializer):
     """The executive also sees the client, the internal note and who moved it."""
 
     cliente = serializers.SerializerMethodField()
+    formulario = serializers.SerializerMethodField()
     eventos = EventoBackofficeSerializer(many=True)
 
     canal_que_edita = Tramite.Canal.BACKOFFICE
@@ -407,10 +425,17 @@ class TramiteBackofficeSerializer(TramiteSerializer):
         fields = [
             *TramiteSerializer.Meta.fields,
             "cliente",
+            "formulario",
             "detalle_pendiente",
             "canal",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_formulario(self, tramite: Tramite) -> dict[str, Any] | None:
+        """A case without a contract as its form's payload, to edit it."""
+        formulario = formulario_de(tramite.tipo)
+        return formulario.valores(tramite) if formulario else None
 
     @extend_schema_field(serializers.JSONField())
     def get_cliente(self, tramite: Tramite) -> dict[str, Any]:
@@ -420,4 +445,6 @@ class TramiteBackofficeSerializer(TramiteSerializer):
             "codigo": cliente.codigo,
             "nombre": cliente.nombre,
             "rut": cliente.parte.rut,
+            # Paying online needs the client's portal account (HU-03).
+            "tiene_cuenta_portal": tiene_cuenta_portal(cliente),
         }

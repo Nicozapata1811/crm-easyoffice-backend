@@ -43,7 +43,14 @@ class TipoTramite(TimestampedModel):
       roles in order (``cliente_representante``, ``representante_emisor``,
       ``autorizante``).
 
-    docs/variation-points.md compares the two seeded types.
+    - ``contrato``: false for a document between third parties (PLT-03 …):
+      its cases have no Contrato, folio or lines, and the template's own
+      form (tramites.formularios) validates the request. The keys about
+      plans, lines, brand and start window do not apply to it.
+    - ``precio``: ``"lista"`` charges the ``servicio`` once at its list
+      price when the draft is confirmed; otherwise the chosen plan is sold.
+
+    docs/variation-points.md compares the seeded types.
     """
 
     codigo = models.SlugField(_("código"), max_length=50, unique=True)

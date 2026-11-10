@@ -149,3 +149,58 @@ def tramite_con_historia(*pasos: Paso, **campos: Any) -> Tramite:
         EventoTramite.objects.filter(pk=evento.pk).update(fecha=fecha)
         anterior = (estado_nuevo, motivo_nuevo or "")
     return tramite
+
+
+# The seeded vehicle-lease case type (tramites 0007, PLT-03).
+TIPO_VEHICULO = "arriendo-vehiculo"
+RUT_ARRENDADOR = synthetic_rut(32_333_444)
+
+
+def payload_vehiculo(cliente, **extra: Any) -> dict[str, Any]:
+    """The vehicle-lease form as the backoffice posts it (JSON)."""
+    seccion_a = payload_domicilio(cliente, sucursal=cliente)
+    return {
+        "tipo": TIPO_VEHICULO,
+        "cliente": cliente.pk,
+        "empresa": seccion_a["empresa"],
+        "representante": {
+            **seccion_a["representante"],
+            "email": "representante@empresa-ficticia.example",
+        },
+        "personeria": seccion_a["personeria"],
+        "arrendador": {
+            "rut": RUT_ARRENDADOR,
+            "nombres": "Rodrigo Ignacio",
+            "apellido_paterno": "Inventado",
+            "apellido_materno": "Ficticio",
+            "domicilio": "Avenida Imaginaria 456",
+            "comuna": "La Florida",
+            "email": "arrendador@persona-ficticia.example",
+        },
+        "domicilio_empresa": "Calle Supuesta 789, oficina 12",
+        "comuna": "Santiago",
+        "fecha": str(timezone.localdate()),
+        "vehiculo": {
+            "marca": "Marca Ficticia",
+            "modelo": "Modelo X",
+            "anio": 2021,
+            "patente": "BBDF12",
+            "color": "Blanco",
+            "vin": "9BWZZZ377VT004251",
+        },
+        "plazo_meses": 12,
+        "fecha_inicio": "2026-10-02",
+        "renta": 250000,
+        "dia_pago": 5,
+        "medio_pago": "transferencia",
+        **extra,
+    }
+
+
+def datos_vehiculo(cliente, **extra: Any) -> dict[str, Any]:
+    """The same form as its serializer leaves it (validated values)."""
+    from crm_easyoffice.tramites.formularios import plt03  # noqa: PLC0415
+
+    serializer = plt03.Serializer(data=payload_vehiculo(cliente, **extra))
+    serializer.is_valid(raise_exception=True)
+    return dict(serializer.validated_data)

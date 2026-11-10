@@ -48,6 +48,7 @@ from crm_easyoffice.tramites.services import FechaInicioVencidaError
 from crm_easyoffice.tramites.services import TransicionInvalidaError
 from crm_easyoffice.tramites.services import firma_no_completada
 from crm_easyoffice.tramites.services import nivel_firma
+from crm_easyoffice.tramites.services import referencia
 from crm_easyoffice.tramites.services import situacion
 from crm_easyoffice.tramites.services import verificar_para_firma
 
@@ -166,6 +167,13 @@ def _solicitud_nueva(documento: Documento, tramite: Tramite) -> SolicitudFirma |
         return None
 
 
+def _nombre_documento(tramite: Tramite) -> str:
+    """What the provider shows the signers: the contract, or the case's type."""
+    if tramite.contrato_id:
+        return f"Contrato {tramite.contrato.folio}"
+    return f"{tramite.tipo.nombre} {tramite.folio}"
+
+
 def enviar(tramite_id: int) -> SolicitudFirma | None:
     """Send the case's current document to the provider, once.
 
@@ -191,11 +199,11 @@ def enviar(tramite_id: int) -> SolicitudFirma | None:
         contenido = archivo.read()
     peticion = SignatureRequest(
         document_id=str(documento.pk),
-        document_name=f"Contrato {tramite.contrato.folio}",
+        document_name=_nombre_documento(tramite),
         content=contenido,
         signers=[_signer(f) for f in _firmantes(documento)],
         callback_url=webhook_url(),
-        metadata={"folio": tramite.contrato.folio},
+        metadata={"folio": referencia(tramite)},
         expires_at=solicitud.expira_en.isoformat() if solicitud.expira_en else None,
     )
     try:

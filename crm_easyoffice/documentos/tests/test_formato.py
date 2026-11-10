@@ -33,3 +33,35 @@ def test_the_term_in_figures_agrees_in_number():
 def test_terms_out_of_range_are_refused(meses):
     with pytest.raises(ValueError, match="outside"):
         formato.en_letras(meses)
+
+
+@pytest.mark.parametrize(
+    ("monto", "texto"),
+    [
+        (1, "UN"),
+        (100, "CIEN"),
+        (121, "CIENTO VEINTIÚN"),
+        (1000, "MIL"),
+        (21000, "VEINTIÚN MIL"),
+        (30000, "TREINTA MIL"),
+        (250000, "DOSCIENTOS CINCUENTA MIL"),
+        (1000000, "UN MILLÓN DE"),
+        (1500000, "UN MILLÓN QUINIENTOS MIL"),
+        (2000000, "DOS MILLONES DE"),
+        (
+            999999999,
+            (
+                "NOVECIENTOS NOVENTA Y NUEVE MILLONES NOVECIENTOS NOVENTA Y NUEVE "
+                "MIL NOVECIENTOS NOVENTA Y NUEVE"
+            ),
+        ),
+    ],
+)
+def test_an_amount_in_words_before_pesos(monto, texto):
+    assert formato.monto_en_letras(monto) == texto
+
+
+@pytest.mark.parametrize("monto", [0, 1_000_000_000])
+def test_amounts_out_of_range_are_refused(monto):
+    with pytest.raises(ValueError, match="outside"):
+        formato.monto_en_letras(monto)

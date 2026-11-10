@@ -38,6 +38,7 @@ from crm_easyoffice.documentos.services import FirmaAvanzadaError
 from crm_easyoffice.documentos.services import registrar_firmado
 from crm_easyoffice.tramites.models import Tramite
 from crm_easyoffice.tramites.services import FechaInicioVencidaError
+from crm_easyoffice.tramites.services import referencia
 
 from .serializers import DocumentoBackofficeSerializer
 from .serializers import DocumentoSerializer
@@ -104,7 +105,7 @@ def _descargar(documento: Documento, tipo: str) -> FileResponse:
     response = FileResponse(
         archivo.open("rb"),
         as_attachment=adjunto,
-        filename=f"{documento.tramite.contrato.folio}{sufijo}.{extension}",
+        filename=f"{referencia(documento.tramite)}{sufijo}.{extension}",
         content_type=content_type,
     )
     response["Cache-Control"] = "no-store, private"

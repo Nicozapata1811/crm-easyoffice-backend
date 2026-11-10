@@ -171,7 +171,20 @@ def test_the_form_lists_the_choices(cliente, inmuebles):
 def test_the_startable_types_are_listed():
     respuesta = staff(roles.EJECUTIVO).get(TIPOS)
 
-    assert respuesta.json() == [{"codigo": "bodega", "nombre": "Bodega virtual"}]
+    assert respuesta.json() == [
+        {
+            "codigo": "arriendo-vehiculo",
+            "nombre": "Arriendo de vehículo",
+            "tipos_cliente": ["empresa"],
+            "formulario": "PLT-03",
+        },
+        {
+            "codigo": "bodega",
+            "nombre": "Bodega virtual",
+            "tipos_cliente": ["empresa"],
+            "formulario": None,
+        },
+    ]
 
 
 def test_unknown_type_or_client_is_a_field_error(inmuebles):

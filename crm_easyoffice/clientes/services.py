@@ -262,3 +262,128 @@ def guardar_datos_contratante(
         representacion.sitio_o_notaria = personeria["sitio_o_notaria"]
         representacion.save()
     return representacion
+
+
+# What a case form may hold about a party who is a natural person.
+CAMPOS_PERSONA = [
+    "nombres",
+    "apellido_paterno",
+    "apellido_materno",
+    "nacionalidad",
+    "estado_civil",
+    "profesion",
+    "domicilio",
+    "comuna",
+    "region",
+    "email",
+]
+
+
+class PersonaConOtrosDatosError(Exception):
+    """A party's RUT is on record with other data, and is not this client's to edit.
+
+    ``campos`` names the fields that differ. Raised only to staff, who may
+    already look the person up; a client never reaches it.
+    """
+
+    def __init__(self, rut: str, campos: list[str]) -> None:
+        super().__init__(f"{rut}: {', '.join(campos)}")
+        self.rut = rut
+        self.campos = campos
+
+
+def _es_del_cliente(persona: Persona, cliente: Cliente, propias: set[int]) -> bool:
+    """Whether ``cliente`` may edit ``persona``.
+
+    Theirs: the client's own person, an active representative of the client's
+    company, or a person recorded for this client's cases (``propias``) who
+    is nobody else's client or representative.
+    """
+    if cliente.persona_id == persona.pk:
+        return True
+    representaciones = persona.representaciones.filter(activo=True)
+    if cliente.empresa_id is not None and (
+        representaciones.filter(empresa_id=cliente.empresa_id).exists()
+    ):
+        return True
+    return (
+        persona.pk in propias
+        and not representaciones.exists()
+        and not Cliente.objects.filter(persona=persona).exists()
+    )
+
+
+def persona_por_rut(rut: str) -> Persona | None:
+    """The person on record with this RUT, if any."""
+    return Persona.objects.filter(rut=normalize_rut(rut)).first()
+
+
+def guardar_persona_de_tramite(
+    cliente: Cliente,
+    datos: dict[str, Any],
+    *,
+    propias: set[int] | frozenset[int] = frozenset(),
+) -> Persona:
+    """Find by RUT, or create, a party of one of ``cliente``'s cases.
+
+    The rule of ``guardar_datos_contratante`` extended to parties who are not
+    the client's representative (a lessor, a shareholder): a new RUT creates
+    the person; a person that is the client's is updated; anyone else is
+    reused unchanged.
+
+    ASSUMPTION: pending validation with Easy Office. For a person who is not
+    the client's, a field still empty on record is filled, because the
+    document needs it; a field that differs is refused, never overwritten.
+    Empty values in ``datos`` are ignored: a form never blanks a record.
+
+    Args:
+        cliente: The client the case is for.
+        datos: ``rut`` and any of ``CAMPOS_PERSONA``.
+        propias: Ids of persons recorded for this client's earlier cases.
+
+    Raises:
+        PersonaConOtrosDatosError: The person is not the client's and is on
+            record with different data.
+    """
+    rut = normalize_rut(datos["rut"])
+    valores = {
+        campo: datos[campo]
+        for campo in CAMPOS_PERSONA
+        if datos.get(campo) not in (None, "")
+    }
+    with transaction.atomic():
+        persona = Persona.objects.select_for_update().filter(rut=rut).first()
+        if persona is None:
+            return Persona.objects.create(rut=rut, **valores)
+        if _es_del_cliente(persona, cliente, set(propias)):
+            cambios = valores
+        else:
+            distintos = [
+                campo
+                for campo, valor in valores.items()
+                if getattr(persona, campo)
+                and str(getattr(persona, campo)).strip().casefold()
+                != str(valor).strip().casefold()
+            ]
+            if distintos:
+                raise PersonaConOtrosDatosError(rut, distintos)
+            cambios = {
+                campo: valor
+                for campo, valor in valores.items()
+                if not getattr(persona, campo)
+            }
+        cambiados = [
+            campo
+            for campo, valor in cambios.items()
+            if getattr(persona, campo) != valor
+        ]
+        for campo in cambiados:
+            setattr(persona, campo, cambios[campo])
+        if cambiados:
+            persona.save(update_fields=[*cambiados, "updated_at"])
+    return persona
+
+
+def tiene_cuenta_portal(cliente: Cliente) -> bool:
+    """Whether the client can sign in to the portal (and so pay online)."""
+    return cliente.cuentas.filter(activa=True).exists()

@@ -201,6 +201,10 @@ class Firmante(models.Model):
             _("representante de Easy Office"),
         )
         AUTORIZANTE = "autorizante", _("autorizante del domicilio")
+        # Parties of the documents Easy Office is not a party to (PLT-03 …).
+        ARRENDADOR = "arrendador", _("arrendador")
+        ARRENDATARIO = "arrendatario", _("arrendatario")
+        ACCIONISTA = "accionista", _("accionista")
 
     class Estado(models.TextChoices):
         PENDIENTE = "pendiente", _("pendiente")

@@ -17,12 +17,23 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.core.management.base import CommandError
 
+from crm_easyoffice.tramites.formularios import sin_contrato
 from crm_easyoffice.tramites.models import TipoTramite
 
 # ASSUMPTION: pending validation with Easy Office. Who signs and in what
 # order (RN-39), whether Easy Office signs every contract (ACTA-002 D2-03)
 # and whether the authoriser signs through the provider or unattended.
 FIRMANTES = ["cliente_representante", "representante_emisor", "autorizante"]
+
+
+def _firma(tipo: TipoTramite, firma: dict[str, Any]) -> dict[str, Any]:
+    """The signature setting for a type: only the level changes when the
+    type's signers are its own (PLT-03 …, where Easy Office never signs).
+    """
+    if sin_contrato(tipo):
+        return {**tipo.configuracion.get("firma", {}), "nivel": firma["nivel"]}
+    return firma
+
 
 # Fictitious people the test PSC knows, free to type in the case form as the
 # client's representative (one company each; 90000301-3 is the e2e test's).
@@ -55,7 +66,7 @@ class Command(BaseCommand):
             call_command("seed_demo_bodega", force=options["force"], stdout=self.stdout)
             firma = {"nivel": "avanzada", "firmantes": FIRMANTES}
         for tipo in TipoTramite.objects.all():
-            tipo.configuracion["firma"] = firma
+            tipo.configuracion["firma"] = _firma(tipo, firma)
             tipo.save(update_fields=["configuracion", "updated_at"])
             self.stdout.write(f"{tipo.nombre}: firma {firma['nivel']}.")
 

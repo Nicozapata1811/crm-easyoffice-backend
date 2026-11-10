@@ -103,7 +103,7 @@ def test_the_seed_explains_both_types():
         (linea["inmueble"], linea.get("incluido_en_plan", False))
         for linea in bodega["lineas"]
     ] == [("sucursal", True), ("bodega", False)]
-    assert [t.codigo for t in tipos_iniciables(BACKOFFICE)] == [TIPO_BODEGA]
+    assert TIPO_BODEGA in {t.codigo for t in tipos_iniciables(BACKOFFICE)}
     assert {t.codigo for t in tipos_iniciables(PORTAL)} == {TIPO_DOMICILIO, TIPO_BODEGA}
 
 

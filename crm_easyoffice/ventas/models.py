@@ -232,6 +232,9 @@ class Venta(TimestampedModel):
         choices=Estado.choices,
         default=Estado.PENDIENTE_PAGO,
     )
+    # What the client pays: ``neto`` + ``iva`` = ``total`` (ventas.montos).
+    neto = models.DecimalField(_("neto (CLP)"), default=0, **MONTO)
+    iva = models.DecimalField(_("IVA (CLP)"), default=0, **MONTO)
     total = models.DecimalField(_("total (CLP)"), **MONTO)
     pagada_en = models.DateTimeField(_("pagada en"), null=True, blank=True)
 
@@ -252,7 +255,11 @@ class Venta(TimestampedModel):
 
 
 class ItemVenta(models.Model):
-    """A sold line. Name and price are copied at sale time (RN-08)."""
+    """A sold line. Name and price are copied at sale time (RN-08).
+
+    ``precio_unitario`` and ``subtotal`` are what is charged, VAT included;
+    ``neto`` and ``iva`` split the subtotal.
+    """
 
     venta = models.ForeignKey(
         Venta,
@@ -270,6 +277,8 @@ class ItemVenta(models.Model):
     precio_unitario = models.DecimalField(_("precio unitario (CLP)"), **MONTO)
     cantidad = models.PositiveIntegerField(_("cantidad"), default=1)
     subtotal = models.DecimalField(_("subtotal (CLP)"), **MONTO)
+    neto = models.DecimalField(_("neto (CLP)"), default=0, **MONTO)
+    iva = models.DecimalField(_("IVA (CLP)"), default=0, **MONTO)
 
     class Meta:
         verbose_name = _("ítem de venta")

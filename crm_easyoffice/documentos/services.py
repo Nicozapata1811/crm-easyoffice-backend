@@ -34,11 +34,13 @@ from crm_easyoffice.tramites.services import documento_fallido
 from crm_easyoffice.tramites.services import documento_listo
 from crm_easyoffice.tramites.services import en_firma
 from crm_easyoffice.tramites.services import nivel_firma
+from crm_easyoffice.tramites.services import referencia
 from crm_easyoffice.tramites.services import roles_firmantes
 from crm_easyoffice.tramites.services import verificar_para_firma
 
 from . import plt01
 from . import plt02
+from . import plt03
 from .comun import Contexto
 from .comun import DatosIncompletosError
 from .models import Documento
@@ -57,7 +59,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Context builders by template code. A new template adds its own.
-CONTEXTOS = {"PLT-01": plt01.contexto, "PLT-02": plt02.contexto}
+CONTEXTOS = {
+    "PLT-01": plt01.contexto,
+    "PLT-02": plt02.contexto,
+    "PLT-03": plt03.contexto,
+}
 
 # Two identity-card images side by side fit the page at 60 mm each, also with
 # LibreOffice's font metrics (70 mm fit in Word but stacked in the PDF).
@@ -172,7 +178,7 @@ def generar(tramite: Tramite) -> Documento | None:
             },
             generado_en=timezone.now(),
         )
-        nombre = f"{tramite.contrato.folio}-v{numero}"
+        nombre = f"{referencia(tramite)}-v{numero}"
         documento.archivo_docx.save(f"{nombre}.docx", ContentFile(docx), save=False)
         documento.archivo_pdf.save(f"{nombre}.pdf", ContentFile(pdf), save=False)
         documento.save()
@@ -195,17 +201,21 @@ def firmantes_en_orden(
 
     Without that key the template's own list stands, as before IN-01. The
     configuration may add Easy Office's representative, who is a party to
-    both contracts but not one of the template's signers.
+    the service contracts but not one of their templates' signers.
+
+    A role may have several signers (every shareholder of an agreement):
+    they keep the template's order within the role.
     """
     roles = roles_firmantes(tipo)
     if roles is None:
         return list(contexto.firmantes)
-    por_rol = {rol: persona for persona, rol in contexto.firmantes}
+    por_rol: dict[str, list[Persona]] = {}
+    for persona, rol in contexto.firmantes:
+        por_rol.setdefault(rol, []).append(persona)
     if Firmante.Rol.REPRESENTANTE_EMISOR in roles:
-        por_rol[Firmante.Rol.REPRESENTANTE_EMISOR] = (
-            obtener_config_empresa().representante
-        )
-    return [(por_rol[rol], rol) for rol in roles if por_rol.get(rol) is not None]
+        emisor = obtener_config_empresa().representante
+        por_rol[Firmante.Rol.REPRESENTANTE_EMISOR] = [emisor] if emisor else []
+    return [(persona, rol) for rol in roles for persona in por_rol.get(rol, [])]
 
 
 def documento_vigente(tramite: Tramite) -> Documento | None:
@@ -267,7 +277,7 @@ def guardar_firmado(
     with transaction.atomic():
         documento = Documento.objects.select_for_update().get(pk=documento.pk)
         documento.archivo_firmado.save(
-            f"{tramite.contrato.folio}-firmado.pdf",
+            f"{referencia(tramite)}-firmado.pdf",
             ContentFile(contenido),
             save=False,
         )

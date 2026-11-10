@@ -1,4 +1,4 @@
-"""Convert an anonymised template (PLT-01, PLT-02) into its docxtpl template.
+"""Convert an anonymised template (PLT-01 … PLT-03) into its docxtpl template.
 
     python manage.py convertir_plantilla PLT-02 [origen.docx] [destino.docx]
 
@@ -15,15 +15,19 @@ from django.core.management.base import CommandError
 
 from crm_easyoffice.documentos.conversion import plt01
 from crm_easyoffice.documentos.conversion import plt02
+from crm_easyoffice.documentos.conversion import plt03
 from crm_easyoffice.documentos.semillas import ORIGEN_PLT01
 from crm_easyoffice.documentos.semillas import ORIGEN_PLT02
+from crm_easyoffice.documentos.semillas import ORIGEN_PLT03
 from crm_easyoffice.documentos.semillas import PLANTILLA_PLT01
 from crm_easyoffice.documentos.semillas import PLANTILLA_PLT02
+from crm_easyoffice.documentos.semillas import PLANTILLA_PLT03
 
 # Template code → converter, committed origin, committed conversion.
 CONVERSORES = {
     "PLT-01": (plt01.convertir, ORIGEN_PLT01, PLANTILLA_PLT01),
     "PLT-02": (plt02.convertir, ORIGEN_PLT02, PLANTILLA_PLT02),
+    "PLT-03": (plt03.convertir, ORIGEN_PLT03, PLANTILLA_PLT03),
 }
 
 

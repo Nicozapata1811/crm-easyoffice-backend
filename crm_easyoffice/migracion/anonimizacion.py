@@ -9,6 +9,7 @@ append-only models raise in ``save()``.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -48,6 +49,7 @@ from crm_easyoffice.inmuebles.models import Oficina
 from crm_easyoffice.inmuebles.models import TipoInmueble
 from crm_easyoffice.inmuebles.services import CALLE_PENDIENTE
 from crm_easyoffice.inmuebles.services import ROL_PENDIENTE
+from crm_easyoffice.tramites.formularios import formulario_de
 from crm_easyoffice.tramites.models import EventoTramite
 from crm_easyoffice.tramites.models import Tramite
 from crm_easyoffice.users.models import User
@@ -185,9 +187,20 @@ CONSERVADOS = {
     "contratos.AlertaVencimiento": {"estado"},
 }
 
-# Holds only the client's choices (plan, branch, date), so it is kept, and still
-# searched in case that ever stops being true.
+# The contract types keep only the client's choices (plan, branch, date). A
+# type with its own form (PLT-03 …) also keeps what identifies a vehicle or a
+# place: its form module lists those paths (CLAVES_SENSIBLES) and
+# _datos_de_tramites replaces them. The column is still searched afterwards.
 REVISADOS = {"tramites.Tramite": {"datos"}}
+
+# How each kind of sensitive case value is replaced; the case id keeps them
+# distinct. The plate and the VIN keep a valid shape.
+DATOS_GENERADOS = {
+    "direccion": lambda pk: f"Calle Anonima {pk:04d}",
+    "patente": lambda pk: f"ZZ{pk % 10000:04d}",
+    "vin": lambda pk: f"ANON{pk:013d}",
+    "texto": lambda pk: TEXTO_FIJO,
+}
 
 VACIADOS = (
     "authtoken.Token",
@@ -553,6 +566,29 @@ def _documentos(copia: _Copia, imagenes: dict[str, str]) -> int:
     return len(documentos)
 
 
+def _datos_de_tramites(copia: _Copia) -> None:
+    """Replace what a case's own data says about a vehicle, a place or in free text.
+
+    People are not in ``datos``: a case names them by id.
+    """
+    for tramite in Tramite.objects.select_related("tipo").order_by("pk"):
+        formulario = formulario_de(tramite.tipo)
+        if formulario is None:
+            continue
+        datos = copy.deepcopy(tramite.datos)
+        for ruta, clase in formulario.CLAVES_SENSIBLES.items():
+            *padres, hoja = ruta.split(".")
+            nodo = datos
+            for padre in padres:
+                nodo = nodo.get(padre) or {}
+            if nodo.get(hoja):
+                nodo[hoja] = copia.registrar(
+                    str(nodo[hoja]),
+                    DATOS_GENERADOS[clase](tramite.pk),
+                )
+        Tramite.objects.filter(pk=tramite.pk).update(datos=datos)
+
+
 def _cerrar_abiertos() -> None:
     """Open requests and orders point at a provider that has never heard of them."""
     SolicitudFirma.objects.filter(estado__in=SolicitudFirma.ABIERTAS).update(
@@ -717,6 +753,8 @@ def anonimizar() -> Resumen:
             "movil_aviso": f"+5692{c.pk:07d}",
         },
     )
+
+    _datos_de_tramites(copia)
 
     anverso = tarjeta_png(200)
     reverso = tarjeta_png(225)

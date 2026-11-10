@@ -26,6 +26,12 @@ from crm_easyoffice.clientes.api.views import ClientePermissions
 from crm_easyoffice.clientes.api.views import search_clientes
 from crm_easyoffice.clientes.models import Cliente
 from crm_easyoffice.clientes.services import RepresentanteNoDisponibleError
+from crm_easyoffice.clientes.services import persona_por_rut
+from crm_easyoffice.core.validators import normalize_rut
+from crm_easyoffice.core.validators import validate_rut
+from crm_easyoffice.tramites.formularios import formulario_de
+from crm_easyoffice.tramites.formularios.comun import OTROS_DATOS
+from crm_easyoffice.tramites.formularios.comun import DatosDePersonaError
 from crm_easyoffice.tramites.models import TipoTramite
 from crm_easyoffice.tramites.models import Tramite
 from crm_easyoffice.tramites.services import NO_DISPONIBLE
@@ -52,6 +58,7 @@ from .serializers import FechaInicioSerializer
 from .serializers import FormularioBackofficeSerializer
 from .serializers import FormularioPortalSerializer
 from .serializers import FormularioSerializer
+from .serializers import PersonaTramiteSerializer
 from .serializers import SolicitudBackofficeSerializer
 from .serializers import SolicitudPortalSerializer
 from .serializers import TipoTramiteSerializer
@@ -126,6 +133,12 @@ def _tipo_y_cliente(codigo: str, cliente_id: str | int) -> tuple[TipoTramite, Cl
     return tipo, cliente
 
 
+def _formulario_propio(codigo: object):
+    """The own form of the type a request names, if it has one (PLT-03 …)."""
+    tipo = TipoTramite.objects.filter(codigo=str(codigo or ""), activo=True).first()
+    return formulario_de(tipo) if tipo is not None else None
+
+
 def _con_tramite(queryset: QuerySet[Tramite]) -> QuerySet[Tramite]:
     return queryset.select_related(
         "tipo",
@@ -136,6 +149,7 @@ def _con_tramite(queryset: QuerySet[Tramite]) -> QuerySet[Tramite]:
         "cliente__empresa",
     ).prefetch_related(
         "eventos__usuario",
+        "cliente__cuentas",
         "venta__items__servicio",
         "contrato__servicios__inmueble",
         "contrato__servicios__ciclo_pago",
@@ -163,6 +177,10 @@ def _responder(
     except RepresentanteNoDisponibleError:
         raise ValidationError(
             {"representante": {"rut": [REPRESENTANTE_NO_DISPONIBLE]}},
+        ) from None
+    except DatosDePersonaError as error:
+        raise ValidationError(
+            {error.bloque: {campo: [OTROS_DATOS] for campo in error.campos}},
         ) from None
     except TramiteNoDisponibleError as error:
         respuesta = _conflicto(NO_DISPONIBLE, "no_disponible")
@@ -391,11 +409,25 @@ class TramiteViewSet(ReadOnlyModelViewSet):
         responses={201: TramiteBackofficeSerializer},
     )
     def create(self, request: Request) -> Response:
-        """Start a case for a client: its data, the draft contract, the document."""
-        serializer = SolicitudBackofficeSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        datos = dict(serializer.validated_data)
-        tipo, cliente = _tipo_y_cliente(datos.pop("tipo"), datos.pop("cliente"))
+        """Start a case for a client: its data, the draft contract, the document.
+
+        A type without a contract (PLT-03 …) is validated by its template's
+        own form; its body is that form's, plus ``tipo`` and ``cliente``.
+        """
+        propio = _formulario_propio(request.data.get("tipo"))
+        if propio is not None:
+            tipo, cliente = _tipo_y_cliente(
+                request.data.get("tipo", ""),
+                request.data.get("cliente", ""),
+            )
+            serializer = propio.Serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            datos = dict(serializer.validated_data)
+        else:
+            serializer = SolicitudBackofficeSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            datos = dict(serializer.validated_data)
+            tipo, cliente = _tipo_y_cliente(datos.pop("tipo"), datos.pop("cliente"))
         return _responder(
             lambda: iniciar_tramite(
                 tipo,
@@ -415,7 +447,10 @@ class TramiteViewSet(ReadOnlyModelViewSet):
     def update(self, request: Request, pk: str | None = None) -> Response:
         """Change a backoffice request before it is signed; the document is redone."""
         tramite = self.get_object()
-        serializer = EdicionBackofficeSerializer(data=request.data)
+        propio = formulario_de(tramite.tipo)
+        serializer = (propio.Serializer if propio else EdicionBackofficeSerializer)(
+            data=request.data,
+        )
         serializer.is_valid(raise_exception=True)
         return _responder(
             lambda: actualizar_tramite(
@@ -426,6 +461,26 @@ class TramiteViewSet(ReadOnlyModelViewSet):
             ),
             serializer=TramiteBackofficeSerializer,
         )
+
+    @extend_schema(
+        parameters=[OpenApiParameter("rut", str, required=True)],
+        responses={200: PersonaTramiteSerializer, 404: None},
+    )
+    @action(detail=False, methods=["get"], permission_classes=[PuedeIniciarTramites])
+    def personas(self, request: Request) -> Response:
+        """The person on record with a RUT, to fill a form's party block.
+
+        404 when nobody has it: the form then creates the person.
+        """
+        rut = normalize_rut(request.query_params.get("rut", ""))
+        try:
+            validate_rut(rut)
+        except DjangoValidationError as error:
+            raise ValidationError({"rut": error.messages}) from error
+        persona = persona_por_rut(rut)
+        if persona is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(PersonaTramiteSerializer(persona).data)
 
     @extend_schema(request=None, responses=TramiteBackofficeSerializer)
     @action(detail=True, methods=["post"], permission_classes=[PuedeGestionarTramites])
