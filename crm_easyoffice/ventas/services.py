@@ -29,6 +29,7 @@ from .models import Pago
 from .models import PlanServicio
 from .models import Servicio
 from .models import Venta
+from .montos import desglosar
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -91,24 +92,36 @@ class PlanNoDisponibleError(Exception):
 
 @dataclass(frozen=True)
 class LineaVenta:
-    """A line to sell. ``precio`` is a plan's price; None means the list price."""
+    """A line to sell. ``precio`` is a plan's price; None means the list price.
+
+    ``incluye_iva`` says how ``precio`` reads; None takes the service's flag.
+    """
 
     servicio: Servicio
     cantidad: int = 1
     precio: Decimal | None = None
     nombre: str | None = None
+    incluye_iva: bool | None = None
 
 
 def _item(linea: LineaVenta | tuple[Servicio, int]) -> ItemVenta:
     if not isinstance(linea, LineaVenta):
         linea = LineaVenta(*linea)
     precio = linea.precio if linea.precio is not None else linea.servicio.precio_base
+    incluye_iva = (
+        linea.incluye_iva
+        if linea.incluye_iva is not None
+        else linea.servicio.precio_incluye_iva
+    )
+    unidad = desglosar(precio, incluye_iva=incluye_iva)
     return ItemVenta(
         servicio=linea.servicio,
         nombre=linea.nombre or linea.servicio.nombre,
-        precio_unitario=precio,
+        precio_unitario=unidad.total,
         cantidad=linea.cantidad,
-        subtotal=precio * linea.cantidad,
+        subtotal=unidad.total * linea.cantidad,
+        neto=unidad.neto * linea.cantidad,
+        iva=unidad.iva * linea.cantidad,
     )
 
 
@@ -118,12 +131,16 @@ def crear_venta(
 ) -> Venta:
     """Record a sale at today's list or plan prices (RN-08).
 
-    ``items`` are lines, or (servicio, cantidad) pairs sold at list price.
+    ``items`` are lines, or (servicio, cantidad) pairs sold at list price. A
+    price that reads "más IVA" (``precio_incluye_iva`` false) is charged with
+    its VAT; one that includes it is charged as it is.
     """
     lineas = [_item(item) for item in items]
     with transaction.atomic():
         venta = Venta.objects.create(
             cliente=cliente,
+            neto=sum(linea.neto for linea in lineas),
+            iva=sum(linea.iva for linea in lineas),
             total=sum(linea.subtotal for linea in lineas),
         )
         for linea in lineas:
@@ -164,6 +181,7 @@ def lineas_de_plan(plan: PlanServicio) -> list[LineaVenta]:
             plan.servicio,
             precio=plan.precio,
             nombre=f"{plan.servicio.nombre} · {plan.nombre}",
+            incluye_iva=plan.precio_incluye_iva,
         ),
     ]
     if not plan.firma_incluida:
