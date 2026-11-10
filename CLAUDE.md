@@ -109,23 +109,28 @@ These are deliberate and each one exists for a reason. Preserve them.
 
 ---
 
-## The configurable engine (the project's differentiator)
+## The configurable engine (out of the MVP)
 
-A *tipo de trámite* is **configuration**, not code. It defines: form fields,
-validation rules, document template, states, whether payment is required, whether
-signature is required, and who is responsible.
+**Team decision, 05-11-2026: the configurable engine is out of the MVP.** Each
+document is implemented directly, as PLT-01 and PLT-02 were. Easy Office
+confirmed six documents: domicilio (PLT-01), bodega (PLT-02), arriendo de
+vehículo (PLT-03), arriendo de estacionamiento (PLT-04), acuerdo de accionistas
+(PLT-05) and the poder simple (template not received).
 
-The system interprets that configuration to build the flow at runtime.
-
-**Build order — follow it.**
-
-1. Implement `domicilio tributario` as directly as possible. Near-hardcoded is
-   fine.
-2. Implement the second document by copying the first. Yes, duplicating.
-3. Only then extract the engine from what actually repeats.
-
-Generalising before two or three concrete cases produces invented abstractions.
-This ordering is a deliberate decision.
+- **Not built:** configuration screens (HU-14, HU-16, HU-17, HU-18) and any
+  generic form or field engine.
+- **Kept, because it exists and fits:** `TipoTramite.configuracion` (a JSONB
+  record edited in the admin), the generic request functions, the shared
+  conversion steps (`conversion/comun.py`) and context builders
+  (`documentos/comun.py`), `documentos.formato`, the signature flow and the
+  transition table.
+- **A new document adds:** a converter (`conversion/plt0N.py`), a context
+  (`documentos/plt0N.py` in `CONTEXTOS`), a form module
+  (`tramites/formularios/plt0N.py` in `FORMULARIOS`: serializer, saving the
+  parties, summary, and its `datos` paths classified for anonymisation), and
+  data migrations for the template, the case type and the price.
+- Behaviour still varies by configuration, never by the type's name.
+  `docs/variation-points.md` compares the documents, one column each.
 
 **Do not build a visual flow editor.** The configuration is a JSONB record edited
 through the Django admin. A drag-and-drop designer is a project in itself and
@@ -450,7 +455,7 @@ Tests use the simulated converter.
     (a case and its dated history), `ventas.tests.factories.venta_pagada`
     and `documentos.tests.factories.documento_generado` (a row on the seeded
     PLT-01 v1, no file rendered). A query-count test keeps the dashboard at
-    a fixed number of queries. The whole suite has 912 tests (firma_sandbox/ has its own 64).
+    a fixed number of queries. The whole suite has 980 tests (firma_sandbox/ has its own 64).
 
 - **Sales** (`ventas/`): `Servicio` (admin-edited, example prices with
   `precio_confirmado=False`), `CicloPago` (único … anual, HU-23), `Venta`,
@@ -480,6 +485,13 @@ Tests use the simulated converter.
     `precio_incluye_iva` records
     how each price reads while the VAT question is open (RN-44 vs the
     template's "más I.V.A."); every price stays unconfirmed until then.
+  - VAT: `ventas/montos.py` (`desglosar`) is the one place that computes
+    net, VAT (19 %) and total. `Venta` and `ItemVenta` store `neto` and
+    `iva`; `total`, `subtotal` and `precio_unitario` are what is charged.
+    A price that includes VAT is charged unchanged (domicile, warehouse,
+    signature); a net one ("más IVA", `precio_incluye_iva` false) is charged
+    with its VAT. Arriendo de vehículo has a fictitious list price of 30.000
+    net (ventas 0018), not bookable from the catalogue: only its case sells it.
   - Plans (`PlanServicio`, HU-24): the portal sells domicilio tributario as
     plan anual (12 months, 59.990, signature included) or semestral (6 months,
     39.990, the firma service charged on top, 5.000), from Easy Office's
@@ -540,6 +552,39 @@ Tests use the simulated converter.
       `contratos.services.inmuebles_ocupados` (drafts hold it).
     - The client sees a backoffice case read-only in the portal.
     - Assumptions are listed in `docs/variation-points.md`.
+  - **Vehicle lease (PLT-03, tramites 0007)**, type `arriendo-vehiculo`,
+    `canales: ["backoffice"]`, company clients. A person leases their own
+    vehicle to their company; Easy Office is not a party (OB-06).
+    - `contrato: false`: **no `Contrato`, no folio, no lines.** The case, its
+      sale and its document are the record; files are named by the case number
+      (`tramites.services.referencia`). The "start date passed" rule does not
+      apply (ASSUMPTION).
+    - Its form is `tramites/formularios/plt03.py`: section A, the owner (a
+      `Persona` found or created by RUT with
+      `clientes.services.guardar_persona_de_tramite`: created if new, updated
+      if the client's, otherwise reused unchanged, filling only empty fields
+      and refusing different ones), the vehicle (plate and VIN validated) and
+      the lease terms. `Tramite.datos` keeps people by id, never copied.
+    - Flow: iniciado → revision_borrador → the executive confirms (RN-13) →
+      one `Venta` of the catalogue service at list price plus VAT
+      (`precio: "lista"`, `requiere_pago: ["backoffice"]`) → pago → the
+      client pays in the portal (`accion_cliente: "pagar"`) → firma →
+      completado. A client without a portal account stays in pago
+      (`cliente.tiene_cuenta_portal`); there is no manual "paid".
+    - Signers: `arrendador`, then `cliente_representante` (`firma.firmantes`).
+      `Firmante.Rol` also has `arrendatario` and `accionista`; a role may
+      have several signers. `seed_demo_firma_avanzada` changes only the level
+      of these types.
+    - API: `tipos/` adds `tipos_cliente` and `formulario` (the template code
+      of the type's own form, or null); `formulario/` adds `formulario` and
+      `precio` (`servicio, neto, iva, total`); `POST`/`PUT /api/tramites/`
+      take that form's body; cases add `resumen` (label/value lines),
+      `formulario` (the saved case as the form's payload) and
+      `cliente.tiene_cuenta_portal`; `GET /api/tramites/personas/?rut=`
+      (`iniciar_tramite`) returns the person on record, or 404.
+    - `manage.py seed_demo_documentos` (DEBUG or `--force`, never production
+      settings) starts one demo case per such document for the first demo
+      portal client.
   - Portal API for types sold by plan: `GET /api/portal/tramites/formulario/?tipo=`
     (`nombre`, plans, properties per role, pre-fill, plain reason),
     `POST /api/portal/tramites/` (`tipo`, section A, `plan`, `sucursal`,
@@ -681,7 +726,7 @@ Traefik's configuration.
 
 Backoffice (users, roles, clients, companies, cases, states, audit) · PostgreSQL
 with Excel migration · configurable engine · `domicilio tributario` end to end ·
-three or four more documents added by configuration · client portal for the
+three or four more documents implemented directly · client portal for the
 priority flow · signature and payment behind decoupled interfaces · deployment to
 a production environment with backups and an operations manual.
 
