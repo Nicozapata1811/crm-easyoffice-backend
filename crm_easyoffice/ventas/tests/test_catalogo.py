@@ -190,6 +190,10 @@ PROXIMAMENTE = [
 ]
 
 
+# Priced later for their own case flow (ventas 0018): fictitious, net.
+CON_PRECIO_FICTICIO = {"arriendo-vehiculo": 30000}
+
+
 class TestSeedVisibles:
     @pytest.mark.parametrize("codigo", PROXIMAMENTE)
     def test_seed_adds_visible_services_not_sold_online(self, codigo):
@@ -198,7 +202,8 @@ class TestSeedVisibles:
         assert cargado.visible_en_portal is True
         assert cargado.se_vende_en_portal is False
         assert cargado.activo is True
-        assert cargado.precio_base is None
+        assert cargado.precio_base == CON_PRECIO_FICTICIO.get(codigo)
+        assert cargado.precio_incluye_iva is (codigo not in CON_PRECIO_FICTICIO)
         assert cargado.precio_confirmado is False
         assert cargado.ciclo_pago_default is None
         assert cargado.descripcion
@@ -289,7 +294,9 @@ class TestVisibilidad:
         por_codigo = {fila["codigo"]: fila for fila in response.data}
         assert por_codigo["arriendo-vehiculo"]["visible_en_portal"] is True
         assert por_codigo["arriendo-vehiculo"]["se_vende_en_portal"] is False
-        assert por_codigo["arriendo-vehiculo"]["precio_base"] is None
+        assert por_codigo["arriendo-vehiculo"]["precio_base"] == "30000"
+        assert por_codigo["arriendo-vehiculo"]["precio_incluye_iva"] is False
+        assert por_codigo["poder-simple"]["precio_base"] is None
         assert por_codigo["bodega"]["se_vende_en_portal"] is True
         assert por_codigo["domicilio-tributario"]["se_vende_en_portal"] is True
         assert por_codigo["firma-electronica-avanzada"]["visible_en_portal"] is False

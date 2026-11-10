@@ -176,6 +176,49 @@ def marcadores(mapa: dict[str, str]) -> Callable[[str], str]:
     return paso
 
 
+CORCHETES = r"\[([^\]<>]+)\]"
+ROTULO = re.compile(r"(<w:t(?: [^>]*)?>)([^<:]+): _+(</w:t>)")
+
+
+def corchetes(mapa: dict[str, str]) -> Callable[[str], str]:
+    """Every ``[MARKER]`` typed in the text becomes its context path (PLT-03)."""
+
+    def paso(doc: str) -> str:
+        def etiqueta(match: re.Match) -> str:
+            return f"{{{{ {mapa[match.group(1)]} }}}}"
+
+        return re.sub(CORCHETES, etiqueta, doc)
+
+    return paso
+
+
+def rotulos(campos: list[tuple[str, str]]) -> Callable[[str], str]:
+    """Each ``Label: ____`` blank, in document order, becomes its context path.
+
+    ``campos`` pairs every label with its path, in order: labels repeat
+    (each party has its "RUT"), so the position decides.
+    """
+
+    def paso(doc: str) -> str:
+        hallados = list(ROTULO.finditer(doc))
+        if [m.group(2) for m in hallados] != [rotulo for rotulo, _ in campos]:
+            msg = "template drift: the labelled blanks are not the expected ones"
+            raise ValueError(msg)
+        return ooxml.splice(
+            doc,
+            [
+                (
+                    m.start(),
+                    m.end(),
+                    f"{m.group(1)}{m.group(2)}: {{{{ {ruta} }}}}{m.group(3)}",
+                )
+                for m, (_, ruta) in zip(hallados, campos, strict=True)
+            ],
+        )
+
+    return paso
+
+
 def imagenes(doc: str) -> str:
     """The two ID-card placeholders become the front and back images."""
     marcas = [
@@ -191,8 +234,15 @@ def imagenes(doc: str) -> str:
     return ooxml.splice(doc, edits)
 
 
-def convertir(origen: bytes, pasos: Iterable[Callable[[str], str]]) -> bytes:
+def convertir(
+    origen: bytes,
+    pasos: Iterable[Callable[[str], str]],
+    restos: Iterable[str] = (),
+) -> bytes:
     """Run the conversion steps on the template's body; nothing may be left.
+
+    ``restos`` are the template's own placeholder patterns (``[ ]`` markers,
+    blanks), searched in the converted text besides merge fields and «».
 
     Raises:
         ValueError: The template does not have the expected structure.
@@ -202,7 +252,10 @@ def convertir(origen: bytes, pasos: Iterable[Callable[[str], str]]) -> bytes:
     doc = parts["word/document.xml"].decode()
     for paso in pasos:
         doc = paso(doc)
-    if "MERGEFIELD" in doc or re.search(r"«[^»]*»", ooxml.text(doc)):
+    texto = ooxml.text(doc)
+    if "MERGEFIELD" in doc or any(
+        re.search(patron, texto) for patron in (r"«[^»]*»", *restos)
+    ):
         msg = "template drift: a merge field or marker was left unconverted"
         raise ValueError(msg)
     parts["word/document.xml"] = doc.encode()

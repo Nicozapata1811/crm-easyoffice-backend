@@ -8,6 +8,11 @@ Two case types run on these functions: the domicile (PLT-01, sold in the
 portal) and the warehouse (PLT-02, started by an executive). They read the
 case type's configuration, never its name; what differs between them is
 listed in docs/variation-points.md.
+
+A type configured ``contrato: false`` (the vehicle lease, PLT-03, and the
+documents after it) has no Contrato, folio or lines: its form module in
+tramites.formularios validates the request and saves its parties, and the
+case, its sale and its document are the record.
 """
 
 from __future__ import annotations
@@ -50,6 +55,8 @@ from crm_easyoffice.inmuebles.services import inmueble_de
 from crm_easyoffice.inmuebles.services import inmuebles_para
 from crm_easyoffice.inmuebles.services import problemas_inmueble
 from crm_easyoffice.ventas.models import Venta
+from crm_easyoffice.ventas.montos import desglosar
+from crm_easyoffice.ventas.services import LineaVenta
 from crm_easyoffice.ventas.services import PlanNoDisponibleError
 from crm_easyoffice.ventas.services import VentaNoPagableError
 from crm_easyoffice.ventas.services import anular_venta
@@ -59,6 +66,8 @@ from crm_easyoffice.ventas.services import lineas_de_plan
 from crm_easyoffice.ventas.services import planes_en_portal
 from crm_easyoffice.ventas.services import servicios_contratables
 
+from .formularios import formulario_de
+from .formularios import sin_contrato
 from .models import EventoTramite
 from .models import MotivoPendiente
 from .models import TipoTramite
@@ -274,6 +283,47 @@ def _servicios_de(tipo: TipoTramite) -> dict[str, Servicio]:
     return {s.codigo: s for s in servicios_contratables().filter(codigo__in=codigos)}
 
 
+def referencia(tramite: Tramite) -> str:
+    """What names the case's files and requests: its contract's folio, if any.
+
+    A case without a contract (``contrato: false``) has no folio; its own
+    number (``TRA-000001``) stands in, and is never printed in its document.
+    """
+    return tramite.contrato.folio if tramite.contrato_id else tramite.folio
+
+
+PRECIO_DE_LISTA = "lista"
+SIN_PRECIO = "El servicio del trámite no existe, está inactivo o no tiene precio."
+
+
+def servicio_a_cobrar(tipo: TipoTramite) -> Servicio | None:
+    """The catalogue service a ``precio: "lista"`` type charges, if it can.
+
+    None when the type is not charged at list price, or its service is
+    missing, inactive or has no price yet.
+    """
+    if tipo.configuracion.get("precio") != PRECIO_DE_LISTA:
+        return None
+    return (
+        servicios_contratables()
+        .filter(codigo=tipo.configuracion.get("servicio", ""))
+        .exclude(precio_base=None)
+        .first()
+    )
+
+
+def _no_disponible_sin_contrato(tipo: TipoTramite, canal: str) -> list[str]:
+    """What a type without a contract lacks to be started through ``canal``."""
+    problemas = []
+    if formulario_de(tipo) is None:
+        problemas.append("La plantilla del trámite no tiene un formulario.")
+    requiere = tipo.configuracion.get("requiere_pago", True)
+    paga = canal in requiere if isinstance(requiere, list) else bool(requiere)
+    if paga and servicio_a_cobrar(tipo) is None:
+        problemas.append(SIN_PRECIO)
+    return problemas
+
+
 def no_disponible(
     cliente: Cliente,
     tipo: TipoTramite,
@@ -288,6 +338,8 @@ def no_disponible(
         if canal == Tramite.Canal.PORTAL:
             return [SOLO_EMPRESAS.format(nombre=tipo.nombre)]
         return [f"«{tipo.nombre}» no es para este tipo de cliente."]
+    if sin_contrato(tipo):
+        return _no_disponible_sin_contrato(tipo, canal)
     problemas = problemas_para_contrato(tipo.configuracion.get("marca", ""))
     if (
         _con_planes(tipo)
@@ -536,6 +588,8 @@ def iniciar_tramite(
         raise TramiteNoDisponibleError(problemas)
     if canal not in canales(tipo):
         raise TramiteNoDisponibleError([f"«{tipo.nombre}» no se inicia por {canal}."])
+    if sin_contrato(tipo):
+        return _iniciar_sin_contrato(tipo, cliente, datos, canal, usuario)
     eleccion = _validar_eleccion(tipo, datos)
     marca = marcas_activas().get(nombre=tipo.configuracion["marca"])
 
@@ -564,6 +618,35 @@ def iniciar_tramite(
             canal=canal,
             datos=_datos(eleccion),
             contrato=contrato,
+            creado_por=usuario,
+        )
+        EventoTramite.objects.create(
+            tramite=tramite,
+            estado_nuevo=INICIADO,
+            usuario=usuario,
+        )
+        _pedir_documento(tramite)
+    return tramite
+
+
+def _iniciar_sin_contrato(
+    tipo: TipoTramite,
+    cliente: Cliente,
+    datos: dict[str, Any],
+    canal: str,
+    usuario: User | None,
+) -> Tramite:
+    """File a request of a type without a contract (PLT-03 …).
+
+    ``datos`` was validated by the type's form serializer; its form module
+    saves the parties and says what the case keeps.
+    """
+    with transaction.atomic():
+        tramite = Tramite.objects.create(
+            cliente=cliente,
+            tipo=tipo,
+            canal=canal,
+            datos=formulario_de(tipo).guardar(cliente, datos),
             creado_por=usuario,
         )
         EventoTramite.objects.create(
@@ -621,7 +704,9 @@ def actualizar_tramite(
     ):
         msg = f"{tramite} can no longer be edited."
         raise TransicionInvalidaError(msg)
-    eleccion = _validar_eleccion(tramite.tipo, datos, tramite.contrato_id)
+    con_contrato = not sin_contrato(tramite.tipo)
+    if con_contrato:
+        eleccion = _validar_eleccion(tramite.tipo, datos, tramite.contrato_id)
 
     with transaction.atomic():
         if tramite.venta is not None:
@@ -630,6 +715,19 @@ def actualizar_tramite(
             except VentaNoPagableError:
                 msg = f"{tramite}: its sale is no longer pending."
                 raise TransicionInvalidaError(msg) from None
+        if not con_contrato:
+            Tramite.objects.filter(pk=tramite.pk).update(
+                datos=formulario_de(tramite.tipo).guardar(tramite.cliente, datos),
+                venta=None,
+            )
+            tramite = _mover(
+                tramite,
+                INICIADO,
+                usuario=usuario,
+                detalle="Datos editados.",
+            )
+            _pedir_documento(tramite)
+            return tramite
         representante = guardar_datos_contratante(
             tramite.cliente,
             empresa=datos["empresa"],
@@ -676,7 +774,9 @@ def cambiar_fecha_inicio(
         django.core.exceptions.ValidationError: The date is out of range.
     """
     _exigir_canal(tramite, canal)
-    if situacion(tramite) != (PENDIENTE, FALTA_INFORMACION):
+    if situacion(tramite) != (PENDIENTE, FALTA_INFORMACION) or sin_contrato(
+        tramite.tipo,
+    ):
         msg = f"{tramite} is not waiting for a new start date."
         raise TransicionInvalidaError(msg)
     datos = {**tramite.datos, "fecha_inicio": fecha_inicio}
@@ -705,6 +805,14 @@ def cambiar_fecha_inicio(
 
 
 def fecha_inicio_vencida(tramite: Tramite) -> bool:
+    """Whether the contract's start date has passed: it is never backdated.
+
+    ASSUMPTION: pending validation with Easy Office. A case without a
+    contract (a lease between third parties) has no such rule: its dates are
+    the parties', and may be past.
+    """
+    if tramite.contrato_id is None:
+        return False
     return tramite.contrato.fecha_inicio < timezone.localdate()
 
 
@@ -755,6 +863,8 @@ def confirmar_borrador(
     """The client confirms the draft (RN-13) and is charged for it (RN-40).
 
     In the backoffice the executive records the client's confirmation.
+    A type charged at list price (``precio: "lista"``) sells its catalogue
+    service once; the others sell the plan the client chose.
 
     ASSUMPTION: pending validation with Easy Office. For a backoffice case
     the client reviews the draft with the executive, outside the platform.
@@ -777,15 +887,22 @@ def confirmar_borrador(
     if not _requiere(tramite, "requiere_pago"):
         return _mover(tramite, PENDIENTE, FIRMA, usuario=usuario, detalle=detalle)
 
-    plan = (
-        planes_en_portal(tramite.tipo.configuracion.get("servicio", ""))
-        .filter(codigo=tramite.datos["plan"])
-        .first()
-    )
-    if plan is None:
-        raise PlanNoDisponibleError
+    if tramite.tipo.configuracion.get("precio") == PRECIO_DE_LISTA:
+        servicio = servicio_a_cobrar(tramite.tipo)
+        if servicio is None:
+            raise TramiteNoDisponibleError([SIN_PRECIO])
+        lineas = [LineaVenta(servicio)]
+    else:
+        plan = (
+            planes_en_portal(tramite.tipo.configuracion.get("servicio", ""))
+            .filter(codigo=tramite.datos["plan"])
+            .first()
+        )
+        if plan is None:
+            raise PlanNoDisponibleError
+        lineas = lineas_de_plan(plan)
     with transaction.atomic():
-        venta = crear_venta(tramite.cliente, lineas_de_plan(plan))
+        venta = crear_venta(tramite.cliente, lineas)
         Tramite.objects.filter(pk=tramite.pk).update(venta=venta)
         return _mover(tramite, PENDIENTE, PAGO, usuario=usuario, detalle=detalle)
 
@@ -875,6 +992,8 @@ def formulario_tramite(
     problemas = no_disponible(cliente, tipo, canal)
     if canal not in canales(tipo):
         problemas.append(f"«{tipo.nombre}» no se inicia por {canal}.")
+    if sin_contrato(tipo):
+        return _formulario_sin_contrato(tipo, cliente, problemas, desde, hasta)
     inmuebles: dict[str, list[Oficina]] = {}
     if not problemas:
         for linea in _lineas_config(tipo):
@@ -912,6 +1031,56 @@ def formulario_tramite(
         "datos": (
             {**prefill, "contacto": {"email_aviso": email, "movil_aviso": movil}}
             if prefill
+            else None
+        ),
+        "formulario": None,
+        "precio": None,
+    }
+
+
+def _formulario_sin_contrato(
+    tipo: TipoTramite,
+    cliente: Cliente,
+    problemas: list[str],
+    desde: date,
+    hasta: date,
+) -> dict[str, Any]:
+    """The form of a type without a contract: its template's own form.
+
+    ``formulario`` names which form to draw; ``precio`` is what confirming
+    the draft will charge, split into net, VAT and total. The plan, property
+    and term choices of the contract types stay empty.
+    """
+    servicio = servicio_a_cobrar(tipo)
+    formulario = formulario_de(tipo)
+    return {
+        "disponible": not problemas,
+        "problemas": problemas,
+        "fecha_min": desde,
+        "fecha_max": hasta,
+        "planes": [],
+        "duraciones": [],
+        "duracion_por_defecto": None,
+        "inmuebles": {},
+        "lineas": [],
+        "ciclos_pago": [],
+        "datos": formulario.prefill(cliente) if formulario and not problemas else None,
+        "formulario": tipo.configuracion.get("plantilla") if formulario else None,
+        "precio": (
+            {
+                "servicio": servicio.nombre,
+                "precio_confirmado": servicio.precio_confirmado,
+                **{
+                    clave: str(valor)
+                    for clave, valor in desglosar(
+                        servicio.precio_base,
+                        incluye_iva=servicio.precio_incluye_iva,
+                    )
+                    ._asdict()
+                    .items()
+                },
+            }
+            if servicio
             else None
         ),
     }
