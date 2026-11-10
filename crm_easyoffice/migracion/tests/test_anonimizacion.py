@@ -49,6 +49,7 @@ from crm_easyoffice.migracion.anonimizacion import CopiaRechazadaError
 from crm_easyoffice.migracion.anonimizacion import anonimizar
 from crm_easyoffice.migracion.anonimizacion import plantillas_faltantes
 from crm_easyoffice.migracion.anonimizacion import verificar
+from crm_easyoffice.tramites.formularios import FORMULARIOS
 from crm_easyoffice.tramites.models import EventoTramite
 from crm_easyoffice.tramites.models import Tramite
 from crm_easyoffice.tramites.tests.factories import preparar_domicilio
@@ -498,3 +499,80 @@ def test_the_audit_logs_rows_never_leave_the_copy():
     empaque = script.partition('"==> Packing it"')[2].partition('"==> Uploading')[0]
 
     assert "--exclude-table-data=core_registroauditoria" in empaque
+
+
+def _rutas(nodo, prefijo: str = ""):
+    """Dotted paths of a case's ``datos``; a list counts as one value."""
+    if isinstance(nodo, dict):
+        for clave, hijo in nodo.items():
+            yield from _rutas(hijo, f"{prefijo}.{clave}" if prefijo else clave)
+    else:
+        yield prefijo
+
+
+@pytest.fixture
+def arriendo(django_capture_on_commit_callbacks) -> Tramite:
+    """A vehicle-lease case (PLT-03) with its generated document."""
+    from crm_easyoffice.tramites.services import iniciar_tramite  # noqa: PLC0415
+    from crm_easyoffice.tramites.services import tipo_tramite  # noqa: PLC0415
+    from crm_easyoffice.tramites.tests.factories import TIPO_VEHICULO  # noqa: PLC0415
+    from crm_easyoffice.tramites.tests.factories import cliente_empresa  # noqa: PLC0415
+    from crm_easyoffice.tramites.tests.factories import datos_vehiculo  # noqa: PLC0415
+
+    cliente = cliente_empresa()
+    with django_capture_on_commit_callbacks(execute=True):
+        tramite = iniciar_tramite(
+            tipo_tramite(TIPO_VEHICULO),
+            cliente,
+            datos_vehiculo(
+                cliente,
+                medio_pago="otro",
+                medio_pago_otro="cheque a nombre de Rodrigo Inventado",
+            ),
+            canal=Tramite.Canal.BACKOFFICE,
+        )
+    tramite.refresh_from_db()
+    return tramite
+
+
+@pytest.mark.parametrize("plantilla", sorted(FORMULARIOS))
+def test_every_path_a_case_form_keeps_is_classified(plantilla, arriendo):
+    formulario = FORMULARIOS[plantilla]
+    casos = Tramite.objects.filter(tipo__configuracion__plantilla=plantilla)
+    assert casos.exists(), f"add a fixture with a {plantilla} case"
+
+    for caso in casos:
+        rutas = set(_rutas(caso.datos))
+        clasificadas = set(formulario.CLAVES_SENSIBLES) | formulario.CLAVES_CONSERVADAS
+        assert rutas - clasificadas == set()
+    assert not set(formulario.CLAVES_SENSIBLES) & formulario.CLAVES_CONSERVADAS
+
+
+@pytest.mark.usefixtures("es_la_copia")
+def test_a_vehicle_lease_keeps_nothing_that_identifies_it(arriendo):
+    originales = {
+        "BBDF12",
+        "9BWZZZ377VT004251",
+        "Calle Supuesta 789, oficina 12",
+        "Avenida Imaginaria 456",
+        "cheque a nombre de Rodrigo Inventado",
+        "Rodrigo Ignacio",
+        "arrendador@persona-ficticia.example",
+    }
+
+    anonimizar()
+
+    arriendo.refresh_from_db()
+    datos = arriendo.datos
+    assert datos["vehiculo"]["patente"] == f"ZZ{arriendo.pk % 10000:04d}"
+    assert datos["vehiculo"]["vin"] == f"ANON{arriendo.pk:013d}"
+    assert datos["domicilio_empresa"] == f"Calle Anonima {arriendo.pk:04d}"
+    assert datos["medio_pago_otro"] == TEXTO_FIJO
+    # Ids, choices, dates and amounts stay, so the case still works.
+    assert (datos["renta"], datos["plazo_meses"], datos["medio_pago"]) == (
+        250000,
+        12,
+        "otro",
+    )
+    assert Persona.objects.filter(pk=datos["arrendador"]).exists()
+    assert verificar(originales) == []
